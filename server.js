@@ -31,6 +31,12 @@ const PORT = Number(process.env.PORT || 3030);
 const BASE_URL = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, "");
 const PROD = process.env.NODE_ENV === "production";
 const PROVA_GIORNI = Number(process.env.PROVA_GIORNI || 30);
+// Prova gratuita dal sito (contratto comune BluCode: comune/prova-gratuita.md)
+const TRIAL_DAYS = Number(process.env.TRIAL_DAYS || 7);
+const WEBSITE_URL = (process.env.WEBSITE_URL || "https://blucodeinformatica.it").replace(/\/$/, "");
+const TERMS_VERSION = process.env.TERMS_VERSION || "1.0";
+const TERMS_URL = process.env.TERMS_URL || `${WEBSITE_URL}/termini/`;
+const TERMS_PDF_URL = process.env.TERMS_PDF_URL || `${WEBSITE_URL}/termini/termini-di-utilizzo-v${TERMS_VERSION}.pdf`;
 const APP_NAME = "BluCheck";
 
 const stripe = process.env.STRIPE_SECRET_KEY ? require("stripe")(process.env.STRIPE_SECRET_KEY) : null;
@@ -40,7 +46,7 @@ if (process.env.SMTP_HOST) {
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT || 587),
     secure: Number(process.env.SMTP_PORT) === 465,
-    auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
+    auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD || process.env.SMTP_PASS } : undefined,
   });
 }
 
@@ -69,12 +75,12 @@ const hashToken = (t) => crypto.createHash("sha256").update(t).digest("hex");
 class HttpError extends Error { constructor(status, message, code) { super(message); this.status = status; this.code = code; } }
 const fail = (status, message, code) => { throw new HttpError(status, message, code); };
 
-async function sendMail(to, subject, text) {
+async function sendMail(to, subject, text, attachments) {
   const list = [...new Set([].concat(to).filter(Boolean).map((e) => e.trim()))];
   if (!list.length) return false;
   if (!mailer) { console.log(`[email non configurata] a ${list.join(", ")}: ${subject}\n${text}\n`); return false; }
   try {
-    await mailer.sendMail({ from: process.env.SMTP_FROM || process.env.SMTP_USER, to: list.join(", "), subject, text });
+    await mailer.sendMail({ from: process.env.SMTP_FROM || process.env.SMTP_USER, to: list.join(", "), subject, text, attachments: attachments || undefined });
     return true;
   } catch (e) { console.error("Invio email non riuscito:", e.message); return false; }
 }
@@ -222,7 +228,8 @@ app.use((req, res, next) => {
 });
 // Protezione CSRF: le richieste che modificano dati devono avere l'intestazione X-BluCheck (impossibile da un altro sito senza CORS).
 app.use("/api", (req, res, next) => {
-  if (req.method === "GET" || req.method === "HEAD") return next();
+  if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return next();
+  if (req.path === "/public/prova") return next(); // arriva dal sito: CORS ristretto a WEBSITE_URL, limiti e campo trappola
   if (req.headers["x-blucheck"] !== "1") return res.status(403).json({ error: "Richiesta non valida" });
   next();
 });
@@ -255,6 +262,97 @@ app.get("/api/config", (req, res) => res.json({
   contatti: { email: process.env.CONTATTO_EMAIL || "", telefono: process.env.CONTATTO_TELEFONO || "", sito: process.env.CONTATTO_SITO || "" },
 }));
 app.get("/api/piani", (req, res) => res.json(db.prepare("SELECT id,nome,descrizione,max_tecnici,mesi,prezzo_cent FROM piani WHERE attivo=1 ORDER BY ordine, prezzo_cent").all()));
+
+/* ---------- prova gratuita dal sito ---------- */
+function pivaValida(v) {
+  if (!/^\d{11}$/.test(v)) return false;
+  let somma = 0;
+  for (let i = 0; i < 10; i++) { let n = Number(v[i]); if (i % 2 === 1) { n *= 2; if (n > 9) n -= 9; } somma += n; }
+  return (10 - (somma % 10)) % 10 === Number(v[10]);
+}
+const emailValida = (e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e);
+// CORS aperto solo al sito (WEBSITE_URL, anche con www)
+app.use("/api/public/prova", (req, res, next) => {
+  const origin = req.headers.origin;
+  const host = WEBSITE_URL.replace(/^https?:\/\//, "");
+  if (origin && [WEBSITE_URL, `https://www.${host}`, `http://www.${host}`].includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  }
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
+app.get("/api/public/prova", (req, res) => res.json({
+  enabled: TRIAL_DAYS > 0, product: APP_NAME, plan: "Laboratorio", days: TRIAL_DAYS, terms_version: TERMS_VERSION,
+}));
+async function scaricaTermini() {
+  try {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 10000);
+    const r = await fetch(TERMS_PDF_URL, { signal: ctl.signal }); clearTimeout(t);
+    if (!r.ok) return null;
+    const buf = Buffer.from(await r.arrayBuffer());
+    return buf.length > 1000 && buf.slice(0, 4).toString() === "%PDF" ? buf : null;
+  } catch { return null; }
+}
+app.post("/api/public/prova", wrap(async (req, res) => {
+  const errore = (status, message, code) => res.status(status).json({ detail: code ? { code, message } : message });
+  const b = req.body || {};
+  const email = str(b.email, 200).toLowerCase();
+  const finto = { ok: true, email, email_sent: true, message: `Ti abbiamo mandato a ${email} il nome utente e la password provvisoria.` };
+  // robot: campo trappola pieno o compilato troppo in fretta → finto successo, nessuna azienda
+  if (str(b.website, 200) || (Number.isFinite(Number(b.elapsed_ms)) && b.elapsed_ms !== null && b.elapsed_ms !== undefined && Number(b.elapsed_ms) < 3000)) {
+    console.log(`Iscrizione alla prova scartata (robot) da ${req.ip}`);
+    return res.status(201).json(finto);
+  }
+  if (TRIAL_DAYS <= 0) return errore(404, "Le iscrizioni alla prova gratuita sono chiuse");
+  const ragione = str(b.company_name, 200), nome = str(b.name, 120);
+  if (ragione.length < 2) return errore(422, "Scrivi la ragione sociale");
+  if (nome.length < 2) return errore(422, "Scrivi nome e cognome del referente");
+  if (!emailValida(email)) return errore(422, "Indirizzo email non valido");
+  if (b.privacy !== true) return errore(422, "Per continuare accetta l'informativa sulla privacy");
+  if (b.terms !== true) return errore(422, "Per continuare accetta i termini di utilizzo");
+  if (str(b.terms_version, 20) !== TERMS_VERSION) return errore(422, "I termini di utilizzo sono stati aggiornati: ricarica la pagina, rileggili e accettali di nuovo");
+  const piva = str(b.vat_number, 30).replace(/\s/g, "").toUpperCase().replace(/^IT/, "");
+  if (piva && !pivaValida(piva)) return errore(422, "Partita IVA non valida");
+  try {
+    limita("prova-ip:" + req.ip, 10, 3600000);
+    limita("prova-email:" + email, 10, 86400000);
+    limita("prova-giorno", 50, 86400000);
+  } catch (e) { return errore(429, "Troppi tentativi di iscrizione: riprova più tardi o scrivici"); }
+  if (db.prepare("SELECT 1 FROM utenti WHERE email=?").get(email))
+    return errore(409, "Questa email ha già un accesso a BluCheck: contattaci se non riesci a entrare.", "email_registrata");
+  if (piva && db.prepare("SELECT 1 FROM aziende WHERE piva=?").get(piva))
+    return errore(409, "Questa azienda è già registrata: contatta l'assistenza per riattivare l'accesso.", "azienda_registrata");
+
+  const fine = addDays(oggi(), Math.max(1, TRIAL_DAYS) - 1);
+  const maxT = db.prepare("SELECT MAX(max_tecnici) m FROM piani WHERE attivo=1").get().m || 10;
+  const piano = db.prepare("SELECT id FROM piani WHERE attivo=1 ORDER BY max_tecnici DESC, prezzo_cent DESC LIMIT 1").get();
+  const azId = uid(), pwd = tempPassword();
+  db.transaction(() => {
+    db.prepare("INSERT INTO aziende (id,ragione,piva,telefono,email,stato,abbonamento_fine,max_tecnici,piano_id,note,prova,terms_version,terms_at,terms_ip,creato) VALUES (?,?,?,?,?,?,?,?,?,?,1,?,?,?,?)")
+      .run(azId, ragione, piva, str(b.phone, 40), email, "attiva", fine, maxT, piano?.id || null,
+        `Iscritto dal sito il ${fmtD(oggi())} (IP ${req.ip}), termini v${TERMS_VERSION}${str(b.sector, 80) ? `, settore: ${str(b.sector, 80)}` : ""}`,
+        TERMS_VERSION, nowISO(), String(req.ip || ""), nowISO());
+    db.prepare("INSERT INTO utenti (id,azienda_id,ruolo,nome,email,hash,attivo,cambia_pwd,creato) VALUES (?,?,?,?,?,?,1,1,?)")
+      .run(uid(), azId, "admin", nome, email, bcrypt.hashSync(pwd, 10), nowISO());
+  })();
+  const pdf = await scaricaTermini();
+  const testo = `Gentile ${nome},\nla prova gratuita di ${APP_NAME} per ${ragione} è attiva fino al ${fmtD(fine)} (${TRIAL_DAYS} giorni).\n\n`
+    + `Indirizzo: ${BASE_URL}/app\nNome utente: ${email}\nPassword provvisoria: ${pwd}\n\n`
+    + `Al primo accesso ti verrà chiesto di scegliere una nuova password.\n\n`
+    + `Entrando accetti i termini di utilizzo (versione ${TERMS_VERSION}), che trovi anche qui: ${TERMS_URL}${pdf ? " e in allegato in PDF" : ""}.\n\n`
+    + `Se hai bisogno di aiuto rispondi a questa email.\n\n${APP_NAME} · BluCode Informatica`;
+  const inviata = await sendMail(email, `${APP_NAME}: la tua prova gratuita è attiva`, testo,
+    pdf ? [{ filename: `termini-di-utilizzo-v${TERMS_VERSION}.pdf`, content: pdf, contentType: "application/pdf" }] : undefined);
+  await sendMail(process.env.ADMIN_NOTIFY_EMAIL ? process.env.ADMIN_NOTIFY_EMAIL.split(",") : superEmails(), `Nuova prova gratuita: ${ragione}`,
+    `Nuova prova gratuita di ${APP_NAME}\nAzienda: ${ragione}\nP.IVA: ${piva || "-"}\nReferente: ${nome}\nEmail: ${email}\nTelefono: ${str(b.phone, 40) || "-"}\nScade: ${fmtD(fine)}\nTermini v${TERMS_VERSION} accettati da IP ${req.ip}\n\n${BASE_URL}/admin`);
+  db.prepare("INSERT INTO avvisi (azienda_id,tipo,testo,creato) VALUES (?,?,?,?)").run(azId, "prova", `Prova gratuita dal sito: ${ragione} (${nome}, ${email}).`, nowISO());
+  res.status(201).json(inviata
+    ? { ok: true, email, email_sent: true, message: finto.message }
+    : { ok: true, email, email_sent: false, message: "Abbiamo creato la tua prova, ma l'email con le credenziali non è partita: ti contattiamo noi a breve." });
+}));
 
 app.post("/api/login", wrap(async (req, res) => {
   limita("login:" + req.ip, 10, 15 * 60000);

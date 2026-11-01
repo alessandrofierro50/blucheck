@@ -92,6 +92,14 @@ CREATE TABLE IF NOT EXISTS avvisi (
 );
 `);
 
+// Colonne aggiunte dopo la prima versione (prova dal sito, accettazione dei termini): si creano se mancano.
+{
+  const cols = db.prepare("PRAGMA table_info(aziende)").all().map((c) => c.name);
+  for (const [nome, def] of [["prova", "INTEGER NOT NULL DEFAULT 0"], ["terms_version", "TEXT DEFAULT ''"], ["terms_at", "TEXT DEFAULT ''"], ["terms_ip", "TEXT DEFAULT ''"]]) {
+    if (!cols.includes(nome)) db.exec(`ALTER TABLE aziende ADD COLUMN ${nome} ${def}`);
+  }
+}
+
 // Piani di esempio al primo avvio: prezzi modificabili dal pannello superuser.
 if (db.prepare("SELECT COUNT(*) n FROM piani").get().n === 0) {
   const ins = db.prepare("INSERT INTO piani (id,nome,descrizione,max_tecnici,mesi,prezzo_cent,ordine) VALUES (?,?,?,?,?,?,?)");
