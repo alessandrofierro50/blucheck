@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1a5fd0">
+<title>BluCheck · Verificazioni periodiche dei registratori telematici</title>
+<meta name="description" content="Il gestionale per i laboratori abilitati: scadenze biennali e DGFE, lista di controllo dell'Agenzia delle Entrate, firma del cliente sul telefono, rapporti A4 e su stampante termica.">
+<link rel="icon" href="/img/blucheck.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/css/blucheck.css">
+<link rel="stylesheet" href="/css/home.css">
+</head>
+<body>
+<header class="hnav gut"><div class="wrap spread">
+  <a class="logo" href="/"><img src="/img/blucheck.svg" alt="" width="28" height="28"><span>Blu<b>Check</b></span></a>
+  <nav class="row"><a href="#funzioni" class="hlink">Funzioni</a><a href="#prezzi" class="hlink">Prezzi</a><a class="btn sm" href="/app">Accedi</a></nav>
+</div></header>
+
+<section class="hero gut"><div class="wrap hero-grid">
+  <div class="hero-txt">
+    <span class="label">Per laboratori abilitati dall'Agenzia delle Entrate</span>
+    <h1>Le verificazioni periodiche dei registratori telematici, dal telefono.</h1>
+    <p class="lead">Scadenze biennali e DGFE sempre sotto controllo, lista di controllo completa per sigillo integro o rimosso, firma del cliente sullo schermo e rapporto stampato in A4 o sulla termica da 80 mm.</p>
+    <div class="row"><a class="btn primary lg" href="#prezzi">Richiedi l'attivazione</a><a class="btn lg" href="/app">Accedi</a></div>
+  </div>
+  <div class="receipt" aria-hidden="true">
+    <div class="r-c"><b>LABORATORIO ESEMPIO SRL</b><br>P.I. 01234567890</div><hr>
+    <div class="r-c"><b>RAPPORTO DI VERIFICAZIONE<br>PERIODICA RT</b><br>CON SIGILLO FISCALE INTEGRO<br><span>N. 2026/0148</span></div><hr>
+    <div class="r-l"><span>Matricola</span><b>80ERA012345</b></div>
+    <div class="r-l"><span>2.1 Targhetta QR Code</span><b>SI</b></div>
+    <div class="r-l"><span>2.2 Scansione QR</span><b>SI</b></div>
+    <div class="r-l"><span>2.3 Firmware</span><b>SI</b></div>
+    <div class="r-l"><span>2.6.7 Memorie DGFE / MF</span><b>SI</b></div>
+    <div class="r-l"><span>2.6.8 Trasmissione XML</span><b>SI</b></div><hr>
+    <div class="r-c r-big">ESITO POSITIVO</div>
+    <div class="r-c">Prossima verificazione entro il<br><b>14/03/2028</b></div>
+    <svg class="r-sign" viewBox="0 0 200 50"><path d="M8 34c14-22 22-26 26-14s-4 18 6 8 14-24 20-10-2 18 10 6 16-10 22-2 4 8 14 2 18-14 26-8 8 10 18 4" fill="none" stroke="#13246b" stroke-width="2.4" stroke-linecap="round"/></svg>
+    <div class="r-c r-small">L'utente</div>
+  </div>
+</div></section>
+
+<section id="funzioni" class="gut sec"><div class="wrap">
+  <h2 class="sec-t">Tutto il lavoro della verifica in un posto</h2>
+  <div class="feat">
+    <div><h3>Scadenze</h3><p>Ogni registratore ha la sua scadenza a 2 anni dall'ultima verificazione e, quando serve, quella annuale del DGFE. Vedi subito cosa è scaduto, cosa scade nei prossimi 30 giorni e copi il promemoria da mandare al cliente.</p></div>
+    <div><h3>Lista di controllo</h3><p>Le prove minime dei moduli dell'Agenzia: Allegato 1 con sigillo integro, Allegato 2 con le prove integrative per il sigillo rimosso, Allegato 3 per la dichiarazione. L'esito si calcola da solo.</p></div>
+    <div><h3>QR code della targhetta</h3><p>Inquadri il QR con la fotocamera del telefono per inserire il registratore e per il controllo di coerenza al punto 2.2.</p></div>
+    <div><h3>Firma sul telefono</h3><p>Il cliente firma con il dito; la firma del tecnico resta salvata nel suo profilo e finisce su ogni rapporto.</p></div>
+    <div><h3>Stampa A4 e 80 mm</h3><p>Rapporto impaginato come il modulo ufficiale per la stampante normale, oppure come scontrino per la stampante termica da 80 mm.</p></div>
+    <div><h3>Più tecnici, un archivio</h3><p>Tutti i tecnici del laboratorio lavorano sugli stessi clienti e apparecchi, ognuno con il proprio codice fiscale, sigillo e firma.</p></div>
+  </div>
+</div></section>
+
+<section id="prezzi" class="gut sec alt"><div class="wrap">
+  <h2 class="sec-t">Prezzi</h2>
+  <p class="muted" id="provaTxt">Dopo l'attivazione puoi rinnovare online con carta, Google Pay, Apple Pay o PayPal.</p>
+  <div class="plans" id="plans"><p class="faint">Caricamento…</p></div>
+
+  <form class="panel req" id="reqForm" novalidate>
+    <h2>Richiedi l'attivazione</h2>
+    <p class="faint" style="margin:0">Ti mandiamo le credenziali di accesso appena il laboratorio è abilitato.</p>
+    <div class="grid2">
+      <label class="field"><span>Ragione sociale del laboratorio</span><input type="text" id="rqRagione" required></label>
+      <label class="field"><span>Partita IVA</span><input type="text" id="rqPiva" inputmode="numeric"></label>
+      <label class="field"><span>Referente (cognome e nome)</span><input type="text" id="rqNome" required></label>
+      <label class="field"><span>Codice fiscale del referente</span><input type="text" id="rqCf"></label>
+      <label class="field"><span>Email</span><input type="email" id="rqEmail" required></label>
+      <label class="field"><span>Telefono</span><input type="tel" id="rqTel"></label>
+      <label class="field"><span>Indirizzo</span><input type="text" id="rqIndirizzo"></label>
+      <label class="field"><span>CAP / Località / Prov.</span><input type="text" id="rqCap"></label>
+      <label class="field"><span>Piano che ti interessa</span><select id="rqPiano"><option value="">Non so ancora</option></select></label>
+    </div>
+    <label class="field"><span>Messaggio (facoltativo)</span><textarea id="rqMsg"></textarea></label>
+    <label class="check"><input type="checkbox" id="rqPrivacy"> Acconsento al trattamento dei dati per ricevere l'attivazione del servizio.</label>
+    <div class="err" id="rqErr"></div>
+    <div class="row"><button class="btn primary lg" type="submit">Invia richiesta</button></div>
+  </form>
+</div></section>
+
+<footer class="gut foot"><div class="wrap spread">
+  <span class="logo"><img src="/img/blucheck.svg" alt="" width="22" height="22"><span>Blu<b>Check</b></span></span>
+  <span class="faint" id="contatti"></span>
+</div></footer>
+<script src="/js/common.js"></script>
+<script src="/js/home.js"></script>
+</body>
+</html>

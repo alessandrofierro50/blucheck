@@ -1,0 +1,11 @@
+{
+  "name": "BluCheck",
+  "short_name": "BluCheck",
+  "description": "Verificazioni periodiche dei registratori telematici",
+  "start_url": "/app",
+  "display": "standalone",
+  "background_color": "#edf1f8",
+  "theme_color": "#1a5fd0",
+  "lang": "it",
+  "icons": [{ "src": "/img/blucheck.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
