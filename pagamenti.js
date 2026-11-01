@@ -283,7 +283,10 @@ async function stripeCheckout({ pid, azId, descrizione, totaleCent, email, succe
     "payment_intent_data[metadata][payment_id]": pid, "payment_intent_data[description]": descrizione,
     "line_items[0][quantity]": "1", "line_items[0][price_data][currency]": "eur", "line_items[0][price_data][unit_amount]": String(totaleCent),
     "line_items[0][price_data][product_data][name]": descrizione, locale: "it", success_url: successUrl, cancel_url: cancelUrl,
+    // le fatture degli abbonamenti le emette BluCode: niente Managed Payments (Stripe venditore al posto nostro), come BluGest
+    "managed_payments[enabled]": "false",
   });
+  if (env("STRIPE_TAX_CODE")) form.set("line_items[0][price_data][product_data][tax_code]", env("STRIPE_TAX_CODE"));
   if (email) form.set("customer_email", email);
   const r = await fetch(`${STRIPE_API}/v1/checkout/sessions`, { method: "POST", body: form, headers: { Authorization: `Bearer ${env("STRIPE_SECRET_KEY")}`, "Idempotency-Key": `checkout-${pid}` } });
   if (!r.ok) { console.warn("Stripe checkout", r.status, (await r.text()).slice(0, 300)); throw new ProviderError("Il pagamento con carta non è disponibile in questo momento: riprova o scegli un altro metodo"); }
