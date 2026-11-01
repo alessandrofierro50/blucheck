@@ -100,6 +100,54 @@ CREATE TABLE IF NOT EXISTS avvisi (
   }
 }
 
+// Allineamento allo standard comune (2026-11-01): pagamenti con fattura, periodicità, impostazioni del ciclo, modelli email.
+{
+  const add = (tab, cols) => {
+    const have = db.prepare(`PRAGMA table_info(${tab})`).all().map((c) => c.name);
+    for (const [nome, def] of cols) if (!have.includes(nome)) db.exec(`ALTER TABLE ${tab} ADD COLUMN ${nome} ${def}`);
+  };
+  add("aziende", [["dati_fatturazione", "TEXT DEFAULT ''"], ["prova_convertita_il", "TEXT DEFAULT ''"], ["sospesa_il", "TEXT DEFAULT ''"]]);
+  add("piani", [["prezzo_mese_cent", "INTEGER"]]);
+  add("pagamenti", [
+    ["stato", "TEXT NOT NULL DEFAULT 'pagato'"],          // in_attesa | pagato | annullato | fallito
+    ["periodicita", "TEXT DEFAULT ''"],                    // mensile | annuale | '' (periodo manuale)
+    ["piano_nome", "TEXT DEFAULT ''"],
+    ["mesi", "INTEGER DEFAULT 0"],
+    ["bollo_cent", "INTEGER NOT NULL DEFAULT 0"],
+    ["rimborso_bollo_cent", "INTEGER NOT NULL DEFAULT 0"],
+    ["totale_cent", "INTEGER"],
+    ["causale", "TEXT DEFAULT ''"],
+    ["rif_gestore", "TEXT DEFAULT ''"],
+    ["dati", "TEXT DEFAULT ''"],                           // copia dei dati di fatturazione al momento del pagamento
+    ["fattura_sezionale", "TEXT DEFAULT ''"],
+    ["fattura_numero", "INTEGER"],
+    ["fattura_anno", "INTEGER"],
+    ["fattura_data", "TEXT DEFAULT ''"],
+    ["fattura_xml", "TEXT DEFAULT ''"],
+    ["fattura_errori", "TEXT DEFAULT ''"],
+    ["email_cliente", "INTEGER NOT NULL DEFAULT 0"],
+    ["email_blucode", "INTEGER NOT NULL DEFAULT 0"],
+    ["pagato_il", "TEXT DEFAULT ''"],
+    ["annullato_il", "TEXT DEFAULT ''"],
+    ["utente_id", "TEXT DEFAULT ''"],
+  ]);
+  db.exec(`
+  CREATE TABLE IF NOT EXISTS contatori_fatture (sezionale TEXT NOT NULL, anno INTEGER NOT NULL, ultimo INTEGER NOT NULL, PRIMARY KEY (sezionale, anno));
+  CREATE TABLE IF NOT EXISTS impostazioni_saas (chiave TEXT PRIMARY KEY, valore TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS modelli_email (codice TEXT PRIMARY KEY, descrizione TEXT, oggetto TEXT NOT NULL, corpo TEXT NOT NULL, aggiornato TEXT);
+  CREATE TABLE IF NOT EXISTS eventi_pagamento (id TEXT PRIMARY KEY, gestore TEXT NOT NULL, tipo TEXT, ricevuto TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS registro (id INTEGER PRIMARY KEY AUTOINCREMENT, chi TEXT, azione TEXT NOT NULL, dettagli TEXT, ip TEXT, creato TEXT NOT NULL);
+  CREATE UNIQUE INDEX IF NOT EXISTS pagamenti_fattura ON pagamenti(fattura_sezionale, fattura_anno, fattura_numero) WHERE fattura_numero IS NOT NULL;
+  `);
+  db.exec("UPDATE pagamenti SET totale_cent = importo_cent WHERE totale_cent IS NULL");
+  db.exec("UPDATE pagamenti SET pagato_il = creato WHERE stato='pagato' AND (pagato_il IS NULL OR pagato_il='')");
+}
+const { MODELLI } = require("./abbonamento");
+{
+  const ins = db.prepare("INSERT OR IGNORE INTO modelli_email (codice,descrizione,oggetto,corpo,aggiornato) VALUES (?,?,?,?,?)");
+  for (const m of MODELLI) ins.run(m.codice, m.descrizione, m.oggetto, m.corpo, new Date().toISOString());
+}
+
 // Piani di esempio al primo avvio: prezzi modificabili dal pannello superuser.
 if (db.prepare("SELECT COUNT(*) n FROM piani").get().n === 0) {
   const ins = db.prepare("INSERT INTO piani (id,nome,descrizione,max_tecnici,mesi,prezzo_cent,ordine) VALUES (?,?,?,?,?,?,?)");

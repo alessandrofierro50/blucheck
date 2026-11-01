@@ -2,20 +2,31 @@
 
 Gestionale per i laboratori abilitati alle verificazioni periodiche dei registratori telematici, venduto in abbonamento.
 
-- **Sito pubblico** (`/`): funzioni, prezzi presi dai piani, modulo "Richiedi l'attivazione".
+- **Sito pubblico** (`/`): funzioni, prezzi presi dai piani, modulo "Richiedi l'attivazione". La prova gratuita parte anche dal sito blucodeinformatica.it.
 - **App dei tecnici** (`/app`): scadenze (verifica a 2 anni, DGFE a 1 anno), clienti, apparecchi, lista di controllo All. 1/2/3, lettura del QR code con i dati presi dalla pagina dell'Agenzia, firma del cliente sul telefono, PDF A4 e termico 80 mm. Ogni azienda vede solo i propri dati.
-- **Pannello superuser** (`/admin`): abiliti le aziende, imposti la scadenza dell'abbonamento e il numero massimo di tecnici, registri i pagamenti, gestisci i piani e vedi gli avvisi.
+- **Pannello superuser** (`/admin`): abiliti le aziende, imposti la scadenza dell'abbonamento e il numero massimo di tecnici, confermi i bonifici, scarichi XML e proforma, gestisci piani e testi degli avvisi.
 
-## Come funziona l'abbonamento
+## Come funziona l'abbonamento (standard comune BluCode, come BluGest)
 
-1. Il laboratorio compila la richiesta sul sito (oppure lo crei tu da `/admin` > Nuova azienda).
-2. Da `/admin` lo abiliti: scegli fino a quando vale la prova (di default 30 giorni) e quanti tecnici può avere. L'amministratore del laboratorio riceve le credenziali per email (e le vedi anche a schermo).
-3. L'amministratore del laboratorio aggiunge i suoi tecnici da Impostazioni, fino al numero consentito.
-4. Rinnovo: da Impostazioni > Abbonamento sceglie un piano e paga su Stripe (carta, Google Pay, Apple Pay, PayPal). Il periodo si **aggiunge** alla scadenza attuale e il numero di tecnici prende quello del piano. Puoi anche registrare a mano un bonifico da `/admin`.
-5. Avvisi automatici ogni 6 ore: all'azienda e a te a 30, 15, 7 e 1 giorno dalla scadenza, il giorno stesso e a scadenza avvenuta (per un'azienda attivata da meno di una settimana si parte dall'avviso dei 15 giorni). Compaiono anche in `/admin` > Avvisi e nell'app come banner.
-6. A scadenza l'archivio diventa **sola lettura**: si consulta e si stampa, ma non si registrano nuove verifiche finché non si rinnova. Con lo stato "Sospesa" l'azienda non entra più.
+1. **Prova gratuita**: dal sito (`POST /api/public/prova`) o da `/admin` > Nuova azienda. Dura `TRIAL_DAYS` giorni (7) sul piano più grande; le credenziali arrivano per email.
+2. Avvisi della prova a **3, 1 e 0 giorni**. **Prova finita = accesso subito sospeso**: l'azienda entra solo nella pagina Abbonamento per scegliere il piano e pagare.
+3. Abbonamento pagato: avvisi a **30, 15, 7, 3, 1, 0 giorni**. Dopo la scadenza **15 giorni di tolleranza** (tutto funziona), poi **30 giorni in sola lettura** (si consulta e si stampa), poi **sospeso**. Da `/admin` puoi sospendere a mano.
+4. Gli avvisi partono ogni giorno alle 8:07 (uno solo, il più vicino, mai due volte lo stesso), con copia ad `ADMIN_NOTIFY_EMAIL`; il lunedì arriva il riepilogo settimanale. Testi e giorni si modificano da `/admin` > Avvisi.
+5. Il rinnovo parte dalla scadenza attuale (o da oggi, se la prova è finita o l'abbonamento è già scaduto). Il numero di tecnici prende quello del piano.
 
-> Stripe incassa ma **non emette la fattura elettronica**: per ogni pagamento ricevi un'email e lo trovi in `/admin` > Pagamenti (esportabile in CSV) per fatturarlo.
+## Pagamenti e fattura
+
+- Metodi: **carta** (Stripe Checkout, anche Google Pay e Apple Pay), **PayPal**, **bonifico**. Compaiono solo quelli configurati in `.env`.
+- Prima di pagare il cliente compila i **dati di fatturazione** (P.IVA o CF, indirizzo, codice SDI o PEC; PA con codice ufficio). Gli importi li calcola il server dal listino; sopra 77,47 € si aggiunge il bollo di 2 € (regime forfettario RF19, natura N2.2).
+- Carta e PayPal confermano da soli (webhook). Il **bonifico** resta "in attesa" finché da `/admin` > Pagamenti non premi **Conferma accredito**: solo allora si rinnova l'abbonamento e si generano i documenti.
+- A pagamento confermato: numero di fattura sezionale `BC` (es. `1/BC`), **XML FatturaPA** (inviato ad `ADMIN_NOTIFY_EMAIL`, da caricare sul portale dell'Agenzia) e **ricevuta proforma PDF** inviata al cliente.
+- Webhook: Stripe `https://blucheck.blucodeinformatica.it/api/pagamenti/webhook/stripe` (eventi `checkout.session.completed`, `checkout.session.async_payment_succeeded`); PayPal `https://blucheck.blucodeinformatica.it/api/pagamenti/webhook/paypal` (evento `PAYMENT.CAPTURE.COMPLETED`).
+
+## BluCode Console
+
+- `GET /api/console/riepilogo` con `Authorization: Bearer <CONSOLE_API_KEY>`: numeri di aziende, prove, scadenze, incassi, avvisi.
+- `POST /api/console/super-admin/credenziali` con in più `X-Console-Admin-Key: <CONSOLE_ADMIN_KEY>`: cambia email/password del superuser (password di almeno 12 caratteri con maiuscole, minuscole e numeri).
+- Con le chiavi vuote le due funzioni sono spente.
 
 ## Installazione sul VPS (Ubuntu/Debian)
 
@@ -32,7 +43,7 @@ npm ci --omit=dev        # (oppure: npm install --omit=dev)
 
 # 3. Configurazione
 cp .env.example .env
-nano .env                # BASE_URL, SUPERUSER_EMAIL/PASSWORD, SMTP, Stripe
+nano .env                # BASE_URL, SUPERUSER, SMTP, pagamenti, CEDENTE_*, Console
 
 # 4. Avvio permanente con pm2
 sudo npm i -g pm2
@@ -44,10 +55,10 @@ sudo cp deploy/nginx-blucheck.conf /etc/nginx/sites-available/blucheck
 sudo nano /etc/nginx/sites-available/blucheck      # metti il tuo dominio
 sudo ln -s /etc/nginx/sites-available/blucheck /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
-sudo certbot --nginx -d blucheck.tuodominio.it
+sudo certbot --nginx -d blucheck.blucodeinformatica.it
 ```
 
-Apri `https://blucheck.tuodominio.it/admin` ed entra con l'email e la password del superuser messe nel `.env` (poi puoi togliere `SUPERUSER_PASSWORD` dal file). Per creare un altro superuser o cambiare la password:
+Apri `https://blucheck.blucodeinformatica.it/admin` ed entra con l'email e la password del superuser messe nel `.env` (poi puoi togliere `SUPERUSER_PASSWORD` dal file). Per creare un altro superuser o cambiare la password:
 
 ```bash
 node scripts/crea-superuser.js tua@email.it "password-lunga" "Nome Cognome"
@@ -55,13 +66,17 @@ node scripts/crea-superuser.js tua@email.it "password-lunga" "Nome Cognome"
 
 **HTTPS è obbligatorio** per la fotocamera (scansione QR dal vivo) e per i pagamenti.
 
-## Pagamenti con Stripe (carta, Google Pay, Apple Pay, PayPal)
+## Configurare i pagamenti
 
-1. Crea l'account su stripe.com e completa i dati dell'azienda.
-2. Dashboard > Impostazioni > **Metodi di pagamento**: attiva Carte, Google Pay, Apple Pay e **PayPal** (per PayPal Stripe ti chiede di collegare il conto PayPal).
-3. Dashboard > Sviluppatori > Chiavi API: copia la chiave segreta in `STRIPE_SECRET_KEY`.
-4. Dashboard > Sviluppatori > **Webhook** > Aggiungi endpoint: `https://blucheck.tuodominio.it/api/stripe/webhook`, eventi `checkout.session.completed` e `checkout.session.async_payment_succeeded`. Copia il "Signing secret" in `STRIPE_WEBHOOK_SECRET`.
-5. `pm2 restart blucheck`.
+**Bonifico**: basta `BONIFICO_IBAN` (e i dati `CEDENTE_*` per la fattura).
+
+**PayPal**: developer.paypal.com > Apps & Credentials > crea l'app (prima in Sandbox): `PAYPAL_CLIENT_ID`, `PAYPAL_SECRET`; aggiungi il webhook indicato sopra e copia l'ID in `PAYPAL_WEBHOOK_ID`. In produzione `PAYPAL_MODE=live`.
+
+**Carta con Stripe**:
+1. Crea l'account su stripe.com e completa i dati dell'azienda; in Impostazioni > Metodi di pagamento attiva Carte, Google Pay, Apple Pay.
+2. Dashboard > Sviluppatori > Chiavi API: copia la chiave segreta in `STRIPE_SECRET_KEY`.
+3. Dashboard > Sviluppatori > **Webhook** > Aggiungi endpoint con l'indirizzo Stripe indicato sopra. Copia il "Signing secret" in `STRIPE_WEBHOOK_SECRET`.
+4. `pm2 restart blucheck`.
 
 Prova prima con le chiavi di test (`sk_test_...`) e la carta `4242 4242 4242 4242`, poi passa a quelle live. Apple Pay su web richiede anche la verifica del dominio in Stripe (Impostazioni > Metodi di pagamento > Apple Pay > Aggiungi dominio).
 
@@ -95,7 +110,9 @@ npm ci --omit=dev && pm2 restart blucheck
 ## Struttura
 
 ```
-server.js            API, sessioni, abbonamenti, Stripe, avvisi
+server.js            API, sessioni, abbonamenti, pagamenti, avvisi, Console
+abbonamento.js       fasi dell'abbonamento (prova, tolleranza, sola lettura, sospeso) e modelli email
+pagamenti.js         dati di fatturazione, Stripe/PayPal, XML FatturaPA, proforma PDF
 ae-qr.js             lettura della pagina dell'Agenzia aperta dal QR
 db.js                database SQLite (schema e piani iniziali)
 public/index.html    sito pubblico
@@ -103,6 +120,8 @@ public/app.html      app dei tecnici      (js/app.js, js/pdf.js, js/common.js)
 public/admin.html    pannello superuser   (js/admin.js)
 scripts/             crea-superuser.js, backup.js
 deploy/              pm2 e nginx
+docs/xsd/            schema ufficiale FatturaPA 1.2.2
+test/                prove automatiche (vedi test/LEGGIMI.md)
 ```
 
 Ruoli: **superuser** (tu), **admin** dell'azienda (gestisce tecnici, dati del laboratorio, abbonamento, può eliminare rapporti), **tecnico** (lavora su clienti, apparecchi e verifiche).

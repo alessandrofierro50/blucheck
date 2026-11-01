@@ -9,8 +9,9 @@ const S = {
 };
 const UI = { tab: "scadenze", filtro: "tutte", tipo: "tutti", q: "", qa: "", qc: "", qv: "", sheet: null, form: null, confirm: null, set: null };
 const VALID_TABS = ["scadenze", "apparecchi", "clienti", "verifiche", "impostazioni"];
+let vaiAbb = false;
 const isAdmin = () => S.me?.ruolo === "admin";
-const readonly = () => !!S.abb?.scaduto;
+const readonly = () => S.abb?.accesso === "lettura";
 const lab = () => {
   const a = S.azienda || {}; const imp = a.impostazioni || {};
   return { ragione: a.ragione || "", indirizzo: a.indirizzo || "", cap: a.cap || "", piva: a.piva || "", telefono: a.telefono || "", email: a.email || "",
@@ -67,11 +68,17 @@ async function start() {
   try { me = await api("GET", "/api/me"); } catch { return showLogin(); }
   if (me.user.ruolo === "superuser") { location.href = "/admin"; return; }
   if (me.user.cambia_pwd) return showChangePassword(true);
+  S.blocked = null;
   try {
-    const [b, cfg, firma] = await Promise.all([api("GET", "/api/bootstrap"), api("GET", "/api/config"), api("GET", "/api/me/firma")]);
-    S.config = cfg; S.firmaTecnico = firma.firma || "";
+    S.config = await api("GET", "/api/config");
+    const b = await api("GET", "/api/bootstrap");
+    S.firmaTecnico = (await api("GET", "/api/me/firma")).firma || "";
     applyBootstrap(b);
-  } catch (e) { return showLogin(e.message); }
+  } catch (e) {
+    if (e.status !== 402) return showLogin(e.message);
+    // prova finita o abbonamento sospeso: resta solo la pagina «Abbonamento»
+    S.me = me.user; S.azienda = me.azienda; S.abb = me.abbonamento; S.blocked = { code: e.code, message: e.message };
+  }
   $("#authRoot").innerHTML = ""; $("#appRoot").hidden = false;
   S.loaded = true;
   fromHash();
@@ -113,11 +120,12 @@ async function del(coll, id) {
 async function getDoc(coll, id) { return (await api("GET", `/api/dati/${coll}/${id}`)).data; }
 function apiError(e) {
   console.error(e);
-  if (e.code === "abbonamento_scaduto") { S.abb = { ...(S.abb || {}), scaduto: true }; render(); }
+  if (e.code === "sola_lettura") { S.abb = { ...(S.abb || {}), accesso: "lettura", stato: "sola_lettura" }; render(); }
+  if (e.code === "prova_scaduta" || e.code === "abbonamento_sospeso") { start(); }
   toast(e.message || "Operazione non riuscita.");
 }
 function guardWrite() {
-  if (readonly()) { toast(isAdmin() ? "Abbonamento scaduto: rinnova da Impostazioni > Abbonamento." : "Abbonamento scaduto: chiedi all'amministratore di rinnovarlo."); return false; }
+  if (readonly()) { toast(isAdmin() ? "BluCheck è in sola lettura: rinnova dalla pagina «Abbonamento» per registrare nuove verifiche." : "BluCheck è in sola lettura: chiedi all'amministratore di rinnovare l'abbonamento."); return false; }
   return true;
 }
 
@@ -146,7 +154,7 @@ function allScadenze() {
 const tecnicoNome = (id) => S.tecnici.find((t) => t.id === id)?.nome || "";
 
 /* ============================== render ============================== */
-function fromHash() { const h = location.hash.slice(1); if (VALID_TABS.includes(h)) UI.tab = h; }
+function fromHash() { const h = location.hash.slice(1); if (VALID_TABS.includes(h)) UI.tab = h; if (h === "abbonamento") { UI.tab = "impostazioni"; vaiAbb = true; } }
 window.addEventListener("hashchange", () => { if (UI.form) return; fromHash(); render(); });
 
 function render(fromSync) {
@@ -154,6 +162,8 @@ function render(fromSync) {
   document.querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-current", !UI.form && b.dataset.tab === UI.tab ? "page" : "false"));
   $("#brandSub").textContent = `${S.azienda?.ragione || ""} · ${S.me?.nome || ""}`;
   const m = $("#main");
+  $(".tabs").hidden = !!S.blocked; $('header [data-act="new-ver"]').hidden = !!S.blocked || readonly();
+  if (S.blocked) { delete m.dataset.form; m.innerHTML = viewBloccato(); $("#barRoot").innerHTML = ""; if (isAdmin()) { if (UI.set?.a) paintAbb(); loadAbb(); } return; }
   if (UI.form) { if (!m.dataset.form) { m.innerHTML = viewForm(); m.dataset.form = "1"; } refreshFormDyn(); renderBar(); if (!fromSync) renderSheet(); else refreshSheetDyn(); return; }
   delete m.dataset.form;
   if (fromSync && UI.tab === "impostazioni") { renderBar(); return; }
@@ -164,14 +174,18 @@ function render(fromSync) {
   if (aid) { const el = document.getElementById(aid); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch { } } }
   renderBar();
   if (fromSync) { if (UI.sheet && !["app-edit", "cli-edit"].includes(UI.sheet.kind)) renderSheet(); } else renderSheet();
-  if (UI.tab === "impostazioni" && isAdmin()) { if (UI.set) { paintTecnici(); paintAbb(); } loadImpostazioni(); }
+  if (UI.tab === "impostazioni" && isAdmin()) { if (UI.set) { paintTecnici(); paintAbb(); } loadImpostazioni().then(() => { if (vaiAbb) { vaiAbb = false; $("#abbPanel")?.scrollIntoView({ behavior: "smooth" }); } }); }
 }
 function banners() {
   const a = S.abb; if (!a) return "";
-  if (a.scaduto) return `<div class="banner bad"><span><b>Abbonamento scaduto${a.fine ? " il " + fmtD(a.fine) : ""}.</b> Puoi consultare l'archivio e stampare i rapporti, ma non registrare nuove verifiche.</span>${isAdmin() ? `<button class="btn sm primary" data-act="go-abb">Rinnova</button>` : `<span class="faint">Avvisa l'amministratore della tua azienda.</span>`}</div>`;
-  if (a.inScadenza && isAdmin()) return `<div class="banner"><span>L'abbonamento scade il <b>${fmtD(a.fine)}</b> (tra ${a.giorni} giorni).</span><button class="btn sm" data-act="go-abb">Rinnova</button></div>`;
+  const btn = (t) => isAdmin() ? `<button class="btn sm primary" data-act="go-abb">${t}</button>` : `<span class="faint">Avvisa l'amministratore della tua azienda.</span>`;
+  if (a.stato === "prova") return `<div class="banner info"><span>Stai usando la <b>prova gratuita</b> fino al <b>${fmtD(a.fine)}</b>${a.giorni <= 3 ? ` (${a.giorni === 0 ? "ultimo giorno" : a.giorni === 1 ? "domani è l'ultimo giorno" : `ancora ${a.giorni} giorni`})` : ""}. Poi l'accesso si sospende: i dati restano.</span>${isAdmin() ? btn("Attiva l'abbonamento") : ""}</div>`;
+  if (a.stato === "tolleranza") return `<div class="banner bad"><span><b>Abbonamento scaduto il ${fmtD(a.fine)}.</b> Puoi lavorare normalmente fino al ${fmtD(addDaysIso(a.sola_lettura_dal, -1))}; dal ${fmtD(a.sola_lettura_dal)} BluCheck sarà in sola lettura.</span>${btn("Rinnova ora")}</div>`;
+  if (a.stato === "sola_lettura") return `<div class="banner bad"><span><b>BluCheck è in sola lettura</b> (abbonamento scaduto il ${fmtD(a.fine)}): puoi consultare e stampare i rapporti, ma non registrare nuove verifiche. Dal ${fmtD(a.sospensione_dal)} l'accesso sarà sospeso.</span>${btn("Rinnova ora")}</div>`;
+  if (a.stato === "in_scadenza" && isAdmin()) return `<div class="banner"><span>L'abbonamento scade il <b>${fmtD(a.fine)}</b> (tra ${a.giorni} giorni).</span><button class="btn sm" data-act="go-abb">Rinnova ora</button></div>`;
   return "";
 }
+const addDaysIso = (iso, n) => { if (!iso) return ""; const [y, m, d] = iso.split("-").map(Number); const t = new Date(y, m - 1, d + n); return `${t.getFullYear()}-${pad2(t.getMonth() + 1)}-${pad2(t.getDate())}`; };
 
 function viewScadenze() {
   const rows = allScadenze(); const pre = lab().preavviso;
@@ -289,34 +303,147 @@ function paintTecnici() {
       <label class="check"><input type="checkbox" id="ntAdmin"> Anche amministratore (gestisce tecnici e abbonamento)</label>
       <div class="row"><button class="btn primary" data-act="tec-add">Aggiungi tecnico</button></div></div></details>`}`;
 }
-function paintAbb() {
-  const p = $("#abbPanel"); if (!p || !UI.set) return;
-  const { a } = UI.set; const st = a.stato;
-  const cls = st.scaduto ? "bad" : st.inScadenza ? "warn" : "ok";
-  const txt = !st.fine ? "Nessuna data di scadenza" : st.scaduto ? `Scaduto il ${fmtD(st.fine)}` : `Attivo fino al ${fmtD(st.fine)} (${st.giorni} giorni)`;
-  const c = S.config.contatti || {};
-  p.innerHTML = `<div class="spread"><h2>Abbonamento</h2><span class="pill ${cls}">${esc(txt)}</span></div>
-    <p class="faint" style="margin:0">Il rinnovo si aggiunge alla scadenza attuale: non perdi i giorni rimasti. Tecnici attivi: ${a.tecnici_attivi} di ${a.azienda.max_tecnici}.</p>
-    <div class="plans">${a.piani.map((pl) => `<div class="plan ${a.azienda.piano_id === pl.id ? "cur" : ""}">
-      <div class="spread"><b style="font-family:var(--f-display);font-size:18px">${esc(pl.nome)}</b>${a.azienda.piano_id === pl.id ? `<span class="pill acc">attuale</span>` : ""}</div>
-      <div class="price">${euro(pl.prezzo_cent)} <small>/ ${pl.mesi} mesi</small></div>
-      <span class="faint">${esc(pl.descrizione || "")} · fino a ${pl.max_tecnici} ${pl.max_tecnici === 1 ? "tecnico" : "tecnici"}</span>
-      ${a.stripe ? `<button class="btn ${a.azienda.piano_id === pl.id ? "primary" : ""}" data-act="paga" data-id="${esc(pl.id)}">${a.azienda.piano_id === pl.id ? "Rinnova" : "Scegli e paga"}</button>` : ""}</div>`).join("")}</div>
-    ${a.stripe ? `<p class="faint" style="margin:0">Pagamento sicuro su Stripe con carta, Google Pay, Apple Pay o PayPal.</p>`
-      : `<div class="banner info"><span>Per rinnovare contatta l'assistenza${c.email ? `: <b>${esc(c.email)}</b>` : ""}${c.telefono ? ` · <b>${esc(c.telefono)}</b>` : ""}.</span></div>`}
-    ${a.pagamenti.length ? `<details><summary>Storico pagamenti (${a.pagamenti.length})</summary><div class="table-wrap" style="margin-top:10px"><table class="t"><thead><tr><th>Data</th><th>Descrizione</th><th>Periodo</th><th class="num">Importo</th></tr></thead><tbody>
-      ${a.pagamenti.map((x) => `<tr><td>${fmtD(x.creato)}</td><td>${esc(x.descrizione)}<br><span class="faint">${esc(x.metodo)}</span></td><td>${x.periodo_da ? `${fmtD(x.periodo_da)} – ${fmtD(x.periodo_a)}` : "—"}</td><td class="num">${euro(x.importo_cent)}</td></tr>`).join("")}</tbody></table></div></details>` : ""}`;
+/* ---------- pagina «Abbonamento» (standard comune: stato, uso, storico, pagamento con carta, PayPal o bonifico) ---------- */
+const PROVINCE_IT = "AG AL AN AO AP AQ AR AT AV BA BG BI BL BN BO BR BS BT BZ CA CB CE CH CL CN CO CR CS CT CZ EN FC FE FG FI FM FR GE GO GR IM IS KR LC LE LI LO LT LU MB MC ME MI MN MO MS MT NA NO NU OR PA PC PD PE PG PI PN PO PR PT PU PV PZ RA RC RE RG RI RM RN RO SA SI SO SP SR SS SU SV TA TE TN TO TP TR TS TV UD VA VB VC VE VI VR VT VV".split(" ");
+UI.abb = { editDati: false, piano: null, periodicita: "annuale", metodo: null, errDati: "", bonifico: null };
+function statoTesto(st) {
+  if (!st) return { cls: "n", txt: "" };
+  const m = {
+    prova: ["acc", `Prova gratuita fino al ${fmtD(st.fine)} (${st.giorni} ${st.giorni === 1 ? "giorno" : "giorni"})`],
+    attivo: ["ok", `Attivo fino al ${fmtD(st.fine)}`],
+    in_scadenza: ["warn", `Scade il ${fmtD(st.fine)} (tra ${st.giorni} giorni)`],
+    tolleranza: ["bad", `Scaduto il ${fmtD(st.fine)} · dal ${fmtD(st.sola_lettura_dal)} sola lettura`],
+    sola_lettura: ["bad", `Sola lettura · dal ${fmtD(st.sospensione_dal)} sospeso`],
+    sospeso: ["bad", st.manuale ? "Sospeso" : `Sospeso (scaduto il ${fmtD(st.fine)})`],
+    prova_scaduta: ["bad", `Prova terminata il ${fmtD(st.fine)}`],
+  }[st.stato] || ["n", st.etichetta || ""];
+  return { cls: m[0], txt: m[1] };
 }
+async function loadAbb() {
+  try { const a = await api("GET", "/api/abbonamento"); UI.set = { ...(UI.set || {}), a }; paintAbb(); } catch (e) { apiError(e); }
+}
+const df = (k) => ($("#df_" + k)?.value || "").trim();
+function datiFattHtml(a) {
+  const d = a.dati_fatturazione || {};
+  if (!UI.abb.editDati && a.dati_salvati && !a.problemi.length) {
+    const nome = d.tipo === "privato" ? `${d.nome || ""} ${d.cognome || ""}` : d.denominazione;
+    const ids = [d.partita_iva ? `P.IVA ${d.partita_iva}` : "", d.codice_fiscale ? `C.F. ${d.codice_fiscale}` : ""].filter(Boolean).join(" · ");
+    return `<div class="qrres"><div class="spread"><b>Dati di fatturazione</b><button class="btn sm" data-act="abb-edit-dati">Modifica</button></div>
+      <span>${esc(nome)}${ids ? " · " + esc(ids) : ""}</span><span class="faint">${esc(`${d.indirizzo}, ${d.cap} ${d.comune}${d.provincia ? " (" + d.provincia + ")" : ""}`)} · ${d.codice_destinatario ? "Codice destinatario " + esc(d.codice_destinatario) : "PEC " + esc(d.pec || "")}</span></div>`;
+  }
+  const f = (k, l, extra = "", cls = "") => `<label class="field"><span>${l}</span><input type="text" id="df_${k}" value="${esc(d[k] || "")}" class="${cls}" ${extra}></label>`;
+  const tipo = d.tipo || "azienda";
+  return `<div class="panel" style="padding:12px;gap:10px"><b>Dati di fatturazione</b>
+    <p class="faint" style="margin:0">Servono per la fattura elettronica: sono obbligatori prima di pagare.</p>
+    <label class="field"><span>Intestatario</span><select id="df_tipo" data-act-change="abb-tipo">
+      <option value="azienda" ${tipo === "azienda" ? "selected" : ""}>Azienda o professionista con partita IVA</option>
+      <option value="privato" ${tipo === "privato" ? "selected" : ""}>Persona senza partita IVA</option>
+      <option value="pa" ${tipo === "pa" ? "selected" : ""}>Pubblica Amministrazione</option></select></label>
+    <div class="grid2">
+      ${tipo === "privato" ? f("nome", "Nome") + f("cognome", "Cognome") : f("denominazione", "Ragione sociale")}
+      ${tipo !== "privato" ? f("partita_iva", "Partita IVA", 'inputmode="numeric"', "mono") : ""}
+      ${f("codice_fiscale", "Codice fiscale" + (tipo === "azienda" ? " (facoltativo)" : ""), 'autocapitalize="characters"', "mono")}
+      ${f("indirizzo", "Indirizzo")}${f("cap", "CAP", 'inputmode="numeric" maxlength="5"', "mono")}${f("comune", "Comune")}
+      <label class="field"><span>Provincia</span><select id="df_provincia"><option value="">—</option>${PROVINCE_IT.map((p) => `<option ${d.provincia === p ? "selected" : ""}>${p}</option>`).join("")}</select></label>
+      ${tipo === "pa" ? f("codice_destinatario", "Codice univoco ufficio (6 caratteri)", 'maxlength="6"', "mono") : f("codice_destinatario", "Codice destinatario SDI (7 caratteri)", 'maxlength="7" placeholder="0000000 se non lo hai"', "mono")}
+      ${tipo !== "pa" ? f("pec", "PEC (se non hai il codice destinatario)") : ""}
+      ${f("email", "Email per la ricevuta")}
+    </div>
+    <div class="err">${esc(UI.abb.errDati)}</div>
+    <div class="row"><button class="btn primary" data-act="abb-save-dati">Salva dati di fatturazione</button>${a.dati_salvati ? `<button class="btn" data-act="abb-cancel-dati">Annulla</button>` : ""}</div></div>`;
+}
+function abbHtml(a) {
+  const st = a.stato, t = statoTesto(st), c = S.config.contatti || {};
+  const ab = UI.abb;
+  const metodi = a.metodi || [];
+  if (!ab.piano || !a.piani.find((p) => p.id === ab.piano)) ab.piano = a.azienda.piano_id && a.piani.find((p) => p.id === a.azienda.piano_id) ? a.azienda.piano_id : a.piani[0]?.id;
+  if (!metodi.find((m) => m.id === ab.metodo)) ab.metodo = metodi[0]?.id || null;
+  const pl = a.piani.find((p) => p.id === ab.piano);
+  const haMensile = a.piani.some((p) => p.mensile);
+  if (ab.periodicita === "mensile" && !pl?.mensile) ab.periodicita = "annuale";
+  const imp = pl ? (ab.periodicita === "mensile" ? pl.mensile : pl.annuale) : null;
+  const bon = ab.bonifico || a.bonifico_in_attesa;
+  const pronti = a.dati_salvati && !a.problemi.length;
+  const copia = (v) => `<button class="btn sm ghost" data-act="copia" data-v="${esc(v)}">Copia</button>`;
+  return `<div class="spread"><h2>Abbonamento</h2><span class="pill ${t.cls}" style="white-space:normal">${esc(t.txt)}</span></div>
+    <dl class="kv"><dt>Piano</dt><dd>${esc(a.piano || "—")}${st.prova ? " (in prova)" : ""}</dd><dt>Tecnici</dt><dd>${a.tecnici_attivi} attivi su ${a.azienda.max_tecnici}</dd>
+      ${st.fine ? `<dt>Scadenza</dt><dd>${fmtD(st.fine)}</dd>` : ""}</dl>
+    ${bon ? `<div class="banner info" style="flex-direction:column;align-items:stretch;gap:6px"><b>Bonifico in attesa di accredito</b>
+      <span>Intestatario: <b>${esc(bon.intestatario)}</b></span>
+      <span class="row">IBAN: <b class="mono">${esc(bon.iban)}</b>${copia(bon.iban.replace(/\s/g, ""))}</span>
+      <span class="row">Importo: <b>${euro(bon.importo_cent)}</b></span>
+      <span class="row">Causale: <b class="mono">${esc(bon.causale)}</b>${copia(bon.causale)}</span>
+      <span class="faint">L'abbonamento si rinnova quando BluCode conferma l'accredito; riceverai la ricevuta per email.</span></div>` : ""}
+    ${metodi.length ? `
+      <h3 style="font-size:16px;margin-top:4px">${st.prova || st.stato === "prova_scaduta" ? "Attiva l'abbonamento" : "Rinnova o cambia piano"}</h3>
+      <p class="faint" style="margin:0">${st.prova ? "L'abbonamento parte da oggi e i dati che hai inserito restano tutti." : "Il rinnovo parte dalla fine del periodo in corso: non perdi i giorni rimasti."}</p>
+      ${datiFattHtml(a)}
+      ${haMensile ? `<div class="seg choose" role="group"><button data-act="abb-per" data-v="annuale" aria-pressed="${ab.periodicita === "annuale"}">Annuale</button><button data-act="abb-per" data-v="mensile" aria-pressed="${ab.periodicita === "mensile"}">Mensile</button></div>` : ""}
+      <div class="plans">${a.piani.map((p) => { const i = ab.periodicita === "mensile" ? p.mensile : p.annuale; return `<button class="plan ${ab.piano === p.id ? "cur" : ""}" data-act="abb-piano" data-id="${esc(p.id)}" style="text-align:left;cursor:pointer;color:var(--ink)" ${i ? "" : "disabled"}>
+        <span class="spread"><b style="font-family:var(--f-display);font-size:18px">${esc(p.nome)}</b>${a.azienda.piano_id === p.id ? `<span class="pill acc">attuale</span>` : ""}</span>
+        <span class="price">${i ? euro(i.importo) : "—"} <small>/ ${ab.periodicita === "mensile" ? "mese" : (p.mesi === 12 ? "anno" : p.mesi + " mesi")}</small></span>
+        <span class="faint">${esc(p.descrizione || "")} · fino a ${p.max_tecnici} ${p.max_tecnici === 1 ? "tecnico" : "tecnici"}</span></button>`; }).join("")}</div>
+      <div class="field"><span>Come vuoi pagare</span><div class="seg wide choose" role="group">${metodi.map((m) => `<button data-act="abb-metodo" data-v="${m.id}" aria-pressed="${ab.metodo === m.id}">${m.id === "carta" ? "Carta, Google Pay, Apple Pay" : esc(m.nome)}</button>`).join("")}</div></div>
+      ${imp ? `<div class="spread" style="border-top:1px solid var(--line);padding-top:10px"><span>${esc(pl.nome)} ${ab.periodicita}: <b>${euro(imp.importo)}</b>${imp.rimborso_bollo ? ` + bollo ${euro(imp.rimborso_bollo)}` : ""} · IVA non dovuta (regime forfettario)</span>
+        <span class="row"><b style="font-family:var(--f-display);font-size:22px">${euro(imp.totale)}</b><button class="btn primary" data-act="abb-paga" ${pronti ? "" : "disabled"}>${ab.metodo === "bonifico" ? "Mostra i dati per il bonifico" : "Paga ora"}</button></span></div>
+        ${pronti ? "" : `<p class="faint" style="margin:0">Compila prima i dati di fatturazione.</p>`}` : ""}
+      <p class="faint" style="margin:0">${ab.metodo === "carta" ? "Pagamento sicuro sulla pagina di Stripe: i dati della carta non passano da BluCheck." : ab.metodo === "paypal" ? "Si apre PayPal per confermare il pagamento." : "Ti mostriamo IBAN e causale: l'abbonamento si rinnova quando arriva l'accredito."}</p>`
+    : `<div class="banner info"><span>Per rinnovare contatta l'assistenza: ${esc(a.contatti || [c.email, c.telefono].filter(Boolean).join(" · "))}.</span></div>`}
+    ${a.pagamenti.length ? `<details ${a.pagamenti.length <= 3 ? "open" : ""}><summary>Storico (${a.pagamenti.length})</summary><div class="table-wrap" style="margin-top:10px"><table class="t"><thead><tr><th>Data</th><th>Descrizione</th><th>Periodo</th><th class="num">Totale</th><th></th></tr></thead><tbody>
+      ${a.pagamenti.map((x) => `<tr><td>${fmtD(x.pagato_il || x.creato)}</td><td>${esc(x.descrizione)}<br><span class="faint">${esc(x.metodo_nome)}${x.stato === "in_attesa" ? " · in attesa" : ""}${x.fattura ? " · fattura " + esc(x.fattura) : ""}</span></td>
+        <td>${x.periodo_da ? `${fmtD(x.periodo_da)} – ${fmtD(x.periodo_a)}` : "—"}</td><td class="num">${euro(x.totale_cent)}</td>
+        <td>${x.fattura ? `<a class="btn sm ghost" href="/api/app/pagamenti/${encodeURIComponent(x.id)}/proforma.pdf">Ricevuta</a>` : ""}</td></tr>`).join("")}</tbody></table></div></details>` : ""}`;
+}
+function paintAbb() {
+  const p = $("#abbPanel"); if (!p || !UI.set?.a) return;
+  p.innerHTML = abbHtml(UI.set.a);
+}
+async function abbAzione(act, el) {
+  const a = UI.set?.a; if (!a) return;
+  if (act === "abb-edit-dati") { UI.abb.editDati = true; UI.abb.errDati = ""; return paintAbb(); }
+  if (act === "abb-cancel-dati") { UI.abb.editDati = false; UI.abb.errDati = ""; return paintAbb(); }
+  if (act === "abb-piano") { UI.abb.piano = el.dataset.id; return paintAbb(); }
+  if (act === "abb-per") { UI.abb.periodicita = el.dataset.v; return paintAbb(); }
+  if (act === "abb-metodo") { UI.abb.metodo = el.dataset.v; return paintAbb(); }
+  if (act === "abb-save-dati") {
+    const body = {}; for (const k of ["tipo", "denominazione", "nome", "cognome", "partita_iva", "codice_fiscale", "indirizzo", "cap", "comune", "provincia", "codice_destinatario", "pec", "email"]) body[k] = df(k);
+    try { await api("PUT", "/api/app/pagamenti/dati-fatturazione", body); UI.abb.editDati = false; UI.abb.errDati = ""; toast("Dati di fatturazione salvati"); await loadAbb(); }
+    catch (e) { UI.abb.errDati = e.message; a.dati_fatturazione = { ...a.dati_fatturazione, ...body }; paintAbb(); }
+    return;
+  }
+  if (act === "abb-paga") {
+    el.disabled = true;
+    try {
+      const r = await api("POST", "/api/app/pagamenti/checkout", { piano: UI.abb.piano, periodicita: UI.abb.periodicita, metodo: UI.abb.metodo });
+      if (r.redirect_url) { location.href = r.redirect_url; return; }
+      if (r.bonifico) { UI.abb.bonifico = r.bonifico; toast(r.gia_in_attesa ? "Hai già un bonifico in attesa: ecco i dati." : "Ecco i dati per il bonifico."); await loadAbb(); $("#abbPanel")?.scrollIntoView({ behavior: "smooth" }); }
+    } catch (e) { el.disabled = false; apiError(e); }
+  }
+}
+document.addEventListener("change", (e) => { if (e.target.id === "df_tipo" && UI.set?.a) { const a = UI.set.a; const body = {}; for (const k of ["denominazione", "nome", "cognome", "partita_iva", "codice_fiscale", "indirizzo", "cap", "comune", "provincia", "codice_destinatario", "pec", "email"]) body[k] = df(k); a.dati_fatturazione = { ...a.dati_fatturazione, ...body, tipo: e.target.value }; paintAbb(); } });
 async function handlePaymentReturn() {
-  const p = new URLSearchParams(location.search).get("pagamento"); if (!p) return;
-  history.replaceState(null, "", "/app#impostazioni"); UI.tab = "impostazioni";
-  if (p === "annullato") { toast("Pagamento annullato: nessun addebito."); render(); return; }
+  const q = new URLSearchParams(location.search); const pid = q.get("pagamento"); if (!pid) return;
+  const esito = q.get("esito");
+  history.replaceState(null, "", "/app#abbonamento");
+  if (esito === "annullato") { toast("Pagamento annullato: nessun addebito."); return; }
+  if (esito === "errore") { toast("Il pagamento non è stato completato. Riprova o scegli un altro metodo.", 5000); return; }
   toast("Verifica del pagamento in corso…");
-  try {
-    const r = await api("GET", "/api/pagamenti/verifica?session_id=" + encodeURIComponent(p));
-    S.abb = r.stato; render();
-    toast(r.pagato ? `Pagamento ricevuto. Abbonamento attivo fino al ${fmtD(r.stato.fine)}.` : "Il pagamento è in elaborazione: l'abbonamento si aggiorna appena confermato.", 5000);
-  } catch (e) { apiError(e); }
+  for (let i = 0; i < 6; i++) {
+    try {
+      const r = await api("GET", `/api/app/pagamenti/${encodeURIComponent(pid)}/esito`);
+      if (r.pagamento.stato === "pagato") { toast(`Pagamento ricevuto. Abbonamento attivo fino al ${fmtD(r.stato.fine)}. La ricevuta ti arriva per email.`, 6000); S.blocked = null; await start(); return; }
+    } catch (e) { break; }
+    await new Promise((res) => setTimeout(res, 2500));
+  }
+  toast("Il pagamento è in elaborazione: l'abbonamento si aggiorna appena il gestore lo conferma.", 6000);
+}
+/* ---------- accesso sospeso (prova finita o abbonamento sospeso): solo la pagina «Abbonamento» ---------- */
+function viewBloccato() {
+  const b = S.blocked;
+  return `<div class="banner bad" style="flex-direction:column;align-items:flex-start;gap:6px"><b style="font-family:var(--f-display);font-size:18px">${b.code === "prova_scaduta" ? "La prova gratuita è terminata" : "L'accesso è sospeso"}</b><span>${b.code === "prova_scaduta" ? "L'accesso è sospeso, ma i dati che hai inserito sono conservati: attiva l'abbonamento e riparti da dove eri." : "I tuoi dati sono conservati: rinnova l'abbonamento per riprendere da dove eri."}${isAdmin() ? "" : ""}</span></div>
+    ${isAdmin() ? `<div class="panel" id="abbPanel"><h2>Abbonamento</h2><p class="faint">Caricamento…</p></div>`
+      : `<div class="panel"><p style="margin:0">Chiedi all'amministratore della tua azienda di attivare l'abbonamento: i dati sono conservati e torneranno disponibili subito dopo.</p></div>`}
+    <div class="row"><button class="btn" data-act="chg-pwd">Cambia password</button><button class="btn ghost" data-act="logout">Esci</button></div>`;
 }
 
 /* ============================== pannelli ============================== */
@@ -764,7 +891,7 @@ document.addEventListener("click", async (e) => {
     }); break;
     case "pdf": { const w = window.open("", "_blank"); makePdf(el.dataset.k, id, w); break; }
     case "remind": copyReminder(id); break;
-    case "go-abb": UI.tab = "impostazioni"; history.replaceState(null, "", "#impostazioni"); UI.sheet = null; render(); setTimeout(() => $("#abbPanel")?.scrollIntoView({ behavior: "smooth" }), 300); break;
+    case "go-abb": UI.tab = "impostazioni"; vaiAbb = true; history.replaceState(null, "", "#abbonamento"); UI.sheet = null; render(); break;
     case "save-profilo": try { const r = await api("PUT", "/api/me", { nome: $("#pfNome").value, cf: $("#pfCf").value, sigillo: $("#pfSigillo").value }); S.me = r.user; render(); toast("Profilo salvato"); } catch (err) { apiError(err); } break;
     case "chg-pwd": showChangePassword(false); break;
     case "logout": await api("POST", "/api/logout").catch(() => { }); S.loaded = false; S.me = null; showLogin(); break;
@@ -778,7 +905,8 @@ document.addEventListener("click", async (e) => {
     } catch (err) { apiError(err); } break;
     case "tec-reset": try { const u = UI.set.t.tecnici.find((x) => x.id === id); const r = await api("POST", `/api/tecnici/${id}/reset`); showSecret(u.email, r.password, r.email_inviata); } catch (err) { apiError(err); } break;
     case "tec-toggle": try { const u = UI.set.t.tecnici.find((x) => x.id === id); await api("PUT", `/api/tecnici/${id}`, { attivo: !u.attivo }); await loadImpostazioni(); toast(u.attivo ? "Tecnico disattivato" : "Tecnico riattivato"); } catch (err) { apiError(err); } break;
-    case "paga": try { el.disabled = true; const r = await api("POST", "/api/pagamenti/checkout", { piano_id: id }); location.href = r.url; } catch (err) { el.disabled = false; apiError(err); } break;
+    case "abb-edit-dati": case "abb-cancel-dati": case "abb-piano": case "abb-per": case "abb-metodo": case "abb-save-dati": case "abb-paga": await abbAzione(act, el); break;
+    case "copia": try { await navigator.clipboard.writeText(el.dataset.v); toast("Copiato"); } catch { toast(el.dataset.v, 6000); } break;
     case "csv-scad": exportCsv(); break;
     case "backup": scaricaFile(`BluCheck_archivio_${todayISO()}.json`, new Blob([JSON.stringify({ app: "blucheck", esportato: new Date().toISOString(), azienda: S.azienda, clienti: S.clienti, apparecchi: S.apparecchi, verifiche: S.verifiche }, null, 1)], { type: "application/json" })); break;
   }
