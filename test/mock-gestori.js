@@ -18,6 +18,6 @@ global.fetch = async (url, opt = {}) => {
   if (u.includes("paypal.com/v2/checkout/orders") && u.endsWith("/capture")) return J({ id: u.split("/").slice(-2)[0], status: "COMPLETED" });
   if (u.includes("paypal.com/v2/checkout/orders")) { const b = JSON.parse(opt.body); return J({ id: "PPORD" + b.purchase_units[0].custom_id, links: [{ rel: "payer-action", href: "https://www.sandbox.paypal.com/checkoutnow?token=X" }] }); }
   if (u.includes("paypal.com/v1/notifications/verify-webhook-signature")) return J({ verification_status: "SUCCESS" });
-  if (u.includes("blucodeinformatica.it/termini")) return new Response("", { status: 404 });
+  if (u.includes("blucodeinformatica.it/termini") || u.includes("blucodeinformatica.it/privacy")) return new Response("", { status: 404 });
   return orig(url, opt);
 };

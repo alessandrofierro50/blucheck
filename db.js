@@ -130,6 +130,7 @@ CREATE TABLE IF NOT EXISTS avvisi (
     ["pagato_il", "TEXT DEFAULT ''"],
     ["annullato_il", "TEXT DEFAULT ''"],
     ["utente_id", "TEXT DEFAULT ''"],
+    ["email_ordine", "INTEGER NOT NULL DEFAULT 0"],        // email «Conferma d'ordine» dell'acquisto dal sito
   ]);
   db.exec(`
   CREATE TABLE IF NOT EXISTS contatori_fatture (sezionale TEXT NOT NULL, anno INTEGER NOT NULL, ultimo INTEGER NOT NULL, PRIMARY KEY (sezionale, anno));

@@ -29,6 +29,7 @@ const db = require("./db");
 const { leggiQrAe } = require("./ae-qr");
 const AB = require("./abbonamento");
 const PAG = require("./pagamenti");
+const CONTRATTO = require("./contratto");
 
 const PORT = Number(process.env.PORT || 3030);
 const BASE_URL = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, "");
@@ -41,6 +42,9 @@ const WEBSITE_URL = (process.env.WEBSITE_URL || "https://blucodeinformatica.it")
 const TERMS_VERSION = process.env.TERMS_VERSION || "1.0";
 const TERMS_URL = process.env.TERMS_URL || `${WEBSITE_URL}/termini/`;
 const TERMS_PDF_URL = process.env.TERMS_PDF_URL || `${WEBSITE_URL}/termini/termini-di-utilizzo-v${TERMS_VERSION}.pdf`;
+const MANUAL_URL = process.env.MANUAL_URL || "https://blucodeinformatica.it/blucheck/manuale/";
+const VIDEOS_URL = process.env.VIDEOS_URL || "https://blucodeinformatica.it/blucheck/video/";
+const PRIVACY_PDF_URL = process.env.PRIVACY_PDF_URL || `${WEBSITE_URL}/privacy/informativa-privacy-v1.0.pdf`;
 const APP_NAME = "BluCheck";
 
 let mailer = null;
@@ -298,7 +302,8 @@ async function documentiPagamento(pid, { cliente, blucode }) {
     if (ok) db.prepare("UPDATE pagamenti SET email_blucode=1 WHERE id=?").run(pid);
   }
 }
-async function checkout(az, user, body, ip) {
+/** `opts.sito` = {ok, annullato, ritornoPaypal}: pagina del sito a cui tornare (acquisto dal sito); `opts.senzaAvviso` = niente email di bonifico (la manda l'acquisto). */
+async function checkout(az, user, body, ip, opts = {}) {
   limita(`checkout:${az.id}`, 10, 3600000); limita(`checkout-ip:${ip}`, 10, 3600000);
   const metodo = str(body.metodo, 20), periodicita = body.periodicita === "mensile" ? "mensile" : "annuale";
   if (!PAG.metodiAttivi().includes(metodo)) fail(400, "Metodo di pagamento non disponibile.");
@@ -323,13 +328,15 @@ async function checkout(az, user, body, ip) {
   try {
     if (metodo === "carta") {
       const s = await PAG.stripeCheckout({ pid, azId: az.id, descrizione, totaleCent: imp.totale, email: dati.email || az.email,
-        successUrl: `${BASE_URL}/app?pagamento=${pid}&esito=ok#abbonamento`, cancelUrl: `${BASE_URL}/app?pagamento=${pid}&esito=annullato#abbonamento` });
+        successUrl: opts.sito ? opts.sito.ok : `${BASE_URL}/app?pagamento=${pid}&esito=ok#abbonamento`,
+        cancelUrl: opts.sito ? opts.sito.annullato : `${BASE_URL}/app?pagamento=${pid}&esito=annullato#abbonamento` });
       db.prepare("UPDATE pagamenti SET rif_gestore=? WHERE id=?").run(s.id, pid);
       return { redirect_url: s.url };
     }
     if (metodo === "paypal") {
       const o = await PAG.paypalOrdine({ pid, causale, descrizione, totaleCent: imp.totale,
-        returnUrl: `${BASE_URL}/api/app/pagamenti/paypal/ritorno?pid=${pid}`, cancelUrl: `${BASE_URL}/app?pagamento=${pid}&esito=annullato#abbonamento` });
+        returnUrl: opts.sito ? `${BASE_URL}/api/pagamenti/paypal/ritorno?id=${pid}&r=${encodeURIComponent(opts.sito.ok)}` : `${BASE_URL}/api/app/pagamenti/paypal/ritorno?pid=${pid}`,
+        cancelUrl: opts.sito ? opts.sito.annullato : `${BASE_URL}/app?pagamento=${pid}&esito=annullato#abbonamento` });
       db.prepare("UPDATE pagamenti SET rif_gestore=? WHERE id=?").run(o.id, pid);
       return { redirect_url: o.url };
     }
@@ -338,7 +345,7 @@ async function checkout(az, user, body, ip) {
     if (e instanceof PAG.ProviderError) fail(502, e.message);
     throw e;
   }
-  await sendMail(notifyEmails(), `[${APP_NAME}] Bonifico in attesa: ${az.ragione}`, `${az.ragione} ha scelto il bonifico: ${euro(imp.totale)}, causale «${causale}».\nQuando vedi l'accredito, conferma dal pannello: ${BASE_URL}/admin#pagamenti`);
+  if (!opts.senzaAvviso) await sendMail(notifyEmails(), `[${APP_NAME}] Bonifico in attesa: ${az.ragione}`, `${az.ragione} ha scelto il bonifico: ${euro(imp.totale)}, causale «${causale}».\nQuando vedi l'accredito, conferma dal pannello: ${BASE_URL}/admin#pagamenti`);
   registra(user.email, "bonifico_in_attesa", `${az.ragione}: ${euro(imp.totale)} ${causale}`, ip);
   return { bonifico: bonificoInfo(db.prepare("SELECT * FROM pagamenti WHERE id=?").get(pid)) };
 }
@@ -418,7 +425,7 @@ app.use((req, res, next) => {
 app.use("/api", (req, res, next) => {
   if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return next();
   if (req.path.startsWith("/console/")) return next(); // dalla BluCode Console: chiave nell'intestazione Authorization
-  if (req.path === "/public/prova") return next(); // arriva dal sito: CORS ristretto a WEBSITE_URL, limiti e campo trappola
+  if (req.path === "/public/prova" || req.path === "/public/acquisto") return next(); // arriva dal sito: CORS ristretto a WEBSITE_URL, limiti e campo trappola
   if (req.headers["x-blucheck"] !== "1") return res.status(403).json({ error: "Richiesta non valida" });
   next();
 });
@@ -471,7 +478,7 @@ function pivaValida(v) {
 }
 const emailValida = (e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e);
 // CORS aperto solo al sito (WEBSITE_URL, anche con www)
-app.use("/api/public/prova", (req, res, next) => {
+app.use("/api/public", (req, res, next) => {
   const origin = req.headers.origin;
   const host = WEBSITE_URL.replace(/^https?:\/\//, "");
   if (origin && [WEBSITE_URL, `https://www.${host}`, `http://www.${host}`].includes(origin)) {
@@ -486,15 +493,31 @@ app.use("/api/public/prova", (req, res, next) => {
 app.get("/api/public/prova", (req, res) => res.json({
   enabled: TRIAL_DAYS > 0, product: APP_NAME, plan: "Laboratorio", days: TRIAL_DAYS, terms_version: TERMS_VERSION,
 }));
-async function scaricaTermini() {
+/** Crea l'azienda in prova con il suo amministratore (password provvisoria da cambiare al primo accesso). Usata dalla prova gratuita e dall'acquisto dal sito.
+ *  Senza `piano` è il piano più grande (prova); con `piano` (acquisto) l'azienda parte con quel piano e con i suoi limiti, in prova fino al pagamento. */
+function creaAziendaProva(req, { ragione, piva, telefono, email, nome, nota, piano, indirizzo, cap }) {
+  const fine = addDays(oggi(), Math.max(1, TRIAL_DAYS) - 1);
+  const pianoProva = piano || db.prepare("SELECT * FROM piani WHERE attivo=1 ORDER BY max_tecnici DESC, prezzo_cent DESC LIMIT 1").get();
+  const maxT = pianoProva?.max_tecnici || db.prepare("SELECT MAX(max_tecnici) m FROM piani WHERE attivo=1").get().m || 10;
+  const azId = uid(), pwd = tempPassword();
+  db.transaction(() => {
+    db.prepare("INSERT INTO aziende (id,ragione,piva,indirizzo,cap,telefono,email,stato,abbonamento_fine,max_tecnici,piano_id,note,prova,terms_version,terms_at,terms_ip,creato) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?)")
+      .run(azId, ragione, piva, indirizzo || "", cap || "", telefono, email, "attiva", fine, maxT, pianoProva?.id || null, nota, TERMS_VERSION, nowISO(), String(req.ip || ""), nowISO());
+    db.prepare("INSERT INTO utenti (id,azienda_id,ruolo,nome,email,hash,attivo,cambia_pwd,creato) VALUES (?,?,?,?,?,?,1,1,?)")
+      .run(uid(), azId, "admin", nome, email, bcrypt.hashSync(pwd, 10), nowISO());
+  })();
+  return { azId, pwd, fine, utente: db.prepare("SELECT * FROM utenti WHERE azienda_id=? AND ruolo='admin'").get(azId) };
+}
+async function scaricaPdf(url) {
   try {
     const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 10000);
-    const r = await fetch(TERMS_PDF_URL, { signal: ctl.signal }); clearTimeout(t);
+    const r = await fetch(url, { signal: ctl.signal }); clearTimeout(t);
     if (!r.ok) return null;
     const buf = Buffer.from(await r.arrayBuffer());
     return buf.length > 1000 && buf.slice(0, 4).toString() === "%PDF" ? buf : null;
   } catch { return null; }
 }
+const scaricaTermini = () => scaricaPdf(TERMS_PDF_URL);
 app.post("/api/public/prova", wrap(async (req, res) => {
   const errore = (status, message, code) => res.status(status).json({ detail: code ? { code, message } : message });
   const b = req.body || {};
@@ -525,18 +548,8 @@ app.post("/api/public/prova", wrap(async (req, res) => {
   if (piva && db.prepare("SELECT 1 FROM aziende WHERE piva=?").get(piva))
     return errore(409, "Questa azienda è già registrata: contatta l'assistenza per riattivare l'accesso.", "azienda_registrata");
 
-  const fine = addDays(oggi(), Math.max(1, TRIAL_DAYS) - 1);
-  const maxT = db.prepare("SELECT MAX(max_tecnici) m FROM piani WHERE attivo=1").get().m || 10;
-  const piano = db.prepare("SELECT id FROM piani WHERE attivo=1 ORDER BY max_tecnici DESC, prezzo_cent DESC LIMIT 1").get();
-  const azId = uid(), pwd = tempPassword();
-  db.transaction(() => {
-    db.prepare("INSERT INTO aziende (id,ragione,piva,telefono,email,stato,abbonamento_fine,max_tecnici,piano_id,note,prova,terms_version,terms_at,terms_ip,creato) VALUES (?,?,?,?,?,?,?,?,?,?,1,?,?,?,?)")
-      .run(azId, ragione, piva, str(b.phone, 40), email, "attiva", fine, maxT, piano?.id || null,
-        `Iscritto dal sito il ${fmtD(oggi())} (IP ${req.ip}), termini v${TERMS_VERSION}${str(b.sector, 80) ? `, settore: ${str(b.sector, 80)}` : ""}`,
-        TERMS_VERSION, nowISO(), String(req.ip || ""), nowISO());
-    db.prepare("INSERT INTO utenti (id,azienda_id,ruolo,nome,email,hash,attivo,cambia_pwd,creato) VALUES (?,?,?,?,?,?,1,1,?)")
-      .run(uid(), azId, "admin", nome, email, bcrypt.hashSync(pwd, 10), nowISO());
-  })();
+  const { azId, pwd, fine } = creaAziendaProva(req, { ragione, piva, telefono: str(b.phone, 40), email, nome,
+    nota: `Iscritto dal sito il ${fmtD(oggi())} (IP ${req.ip}), termini v${TERMS_VERSION}${str(b.sector, 80) ? `, settore: ${str(b.sector, 80)}` : ""}` });
   const pdf = await scaricaTermini();
   const testo = `Gentile ${nome},\nla prova gratuita di ${APP_NAME} per ${ragione} è attiva fino al ${fmtD(fine)} (${TRIAL_DAYS} giorni).\n\n`
     + `Indirizzo: ${BASE_URL}/app\nNome utente: ${email}\nPassword provvisoria: ${pwd}\n\n`
@@ -551,6 +564,145 @@ app.post("/api/public/prova", wrap(async (req, res) => {
   res.status(201).json(inviata
     ? { ok: true, email, email_sent: true, message: finto.message }
     : { ok: true, email, email_sent: false, message: "Abbiamo creato la tua prova, ma l'email con le credenziali non è partita: ti contattiamo noi a breve." });
+}));
+
+/* ---------- acquisto dal sito (contratto comune: comune/acquisto-dal-sito.md; modello BluGest) ---------- */
+const PERIODO_ACQUISTO = "annuale"; // sul sito si compra solo l'annuale
+const METODI_ACQUISTO = ["carta", "paypal", "bonifico"];
+const euroDec = (cent) => (cent / 100).toFixed(2);
+const esc = (v) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+/** Pacchetti in vendita: piani attivi con prezzo annuale > 0 nel listino del server (gli importi non arrivano mai dal browser). */
+const pianiInVendita = () => db.prepare("SELECT * FROM piani WHERE attivo=1 AND prezzo_cent>0 ORDER BY ordine, prezzo_cent").all();
+const originiSito = () => { const host = WEBSITE_URL.replace(/^https?:\/\//, ""); return [WEBSITE_URL, `https://www.${host}`, `http://www.${host}`].map((x) => x.toLowerCase()); };
+/** Pagina del sito (stessa origine di WEBSITE_URL) con `stato` impostato; altrimenti null. */
+function urlSito(url, stato) {
+  try {
+    const u = new URL(String(url || "").trim());
+    if (!["http:", "https:"].includes(u.protocol) || !originiSito().includes(u.origin.toLowerCase())) return null;
+    u.hash = ""; u.searchParams.set("stato", stato);
+    return u.toString();
+  } catch { return null; }
+}
+app.get("/api/public/acquisto", (req, res) => {
+  const metodi = PAG.metodiAttivi().filter((m) => METODI_ACQUISTO.includes(m));
+  const piani = pianiInVendita().map((p) => {
+    const a = PAG.importi(p.prezzo_cent);
+    return { code: p.id, name: p.nome, descrizione: p.descrizione || "", max_tecnici: p.max_tecnici,
+      prezzi: { [PERIODO_ACQUISTO]: { importo: euroDec(a.importo), bollo: euroDec(a.rimborso_bollo), totale: euroDec(a.totale) } } };
+  });
+  res.json({ enabled: piani.length > 0 && metodi.length > 0, product: APP_NAME, piani, metodi, periodicita: PERIODO_ACQUISTO,
+    terms_version: TERMS_VERSION, terms_url: TERMS_URL, privacy_url: `${WEBSITE_URL}/privacy/` });
+});
+app.post("/api/public/acquisto", wrap(async (req, res) => {
+  const errore = (status, message, code) => res.status(status).json({ detail: code ? { code, message } : message });
+  const b = req.body || {};
+  const email = str(b.email, 200).toLowerCase();
+  // robot: campo trappola pieno o compilato troppo in fretta → finto successo, nessun ordine
+  if (str(b.website, 500) || (b.elapsed_ms !== null && b.elapsed_ms !== undefined && Number.isFinite(Number(b.elapsed_ms)) && Number(b.elapsed_ms) < 3000)) {
+    console.log(`Ordine dal sito scartato (robot) da ${req.ip}`);
+    return res.status(201).json({ ok: true, robot: true });
+  }
+  const nome = str(b.name, 120);
+  if (nome.length < 2) return errore(422, "Scrivi nome e cognome del referente");
+  if (!emailValida(email)) return errore(422, "Indirizzo email non valido");
+  if (b.privacy !== true || b.terms !== true) return errore(422, "Per continuare accetta informativa privacy, termini e contratto");
+  if (str(b.terms_version, 20) !== TERMS_VERSION) return errore(422, "I termini di utilizzo sono stati aggiornati: ricarica la pagina, rileggili e accettali di nuovo");
+  const metodo = str(b.method, 20);
+  if (!METODI_ACQUISTO.includes(metodo)) return errore(422, "Metodo di pagamento non valido: scegli carta, PayPal o bonifico");
+  try {
+    limita("acq-ip:" + req.ip, 10, 3600000);
+    limita("acq-email:" + email, 10, 86400000);
+    limita("acq-giorno", 50, 86400000);
+  } catch (e) { return errore(429, "Troppi tentativi: riprova più tardi o scrivici"); }
+  const dati = PAG.normalizza(Object.fromEntries(Object.entries(b.billing || {}).filter(([, v]) => typeof v === "string")));
+  const errs = PAG.problemi(dati);
+  if (errs.length) return errore(422, errs.join("; "), "dati_fatturazione");
+  if (!PAG.metodiAttivi().includes(metodo)) return errore(422, "Metodo di pagamento non disponibile");
+  const piano = pianiInVendita().find((p) => p.id === str(b.plan_code, 60).toLowerCase());
+  if (!piano) return errore(404, "Pacchetto non disponibile");
+  const piva = (dati.partita_iva || "").replace(/^IT/, "");
+  if (db.prepare("SELECT 1 FROM utenti WHERE email=?").get(email))
+    return errore(409, "Questa email ha già un accesso a BluCheck: contattaci se non riesci a entrare.", "email_registrata");
+  if (piva && db.prepare("SELECT 1 FROM aziende WHERE piva=?").get(piva))
+    return errore(409, "Questa azienda è già registrata: contatta l'assistenza per riattivare l'accesso.", "azienda_registrata");
+
+  const ragione = (PAG.nomeCliente(dati) || nome).slice(0, 200);
+  const capTxt = dati.nazione === "IT" ? `${dati.cap} ${dati.comune}${dati.provincia ? ` (${dati.provincia})` : ""}` : `${dati.cap || ""} ${dati.comune || ""}`.trim();
+  const { azId, pwd, fine, utente } = creaAziendaProva(req, { ragione, piva, telefono: str(b.phone, 40), email, nome, piano, indirizzo: dati.indirizzo, cap: capTxt,
+    nota: `Acquisto dal sito il ${fmtD(oggi())} (IP ${req.ip}), termini v${TERMS_VERSION}; prova in attesa del pagamento` });
+  db.prepare("UPDATE aziende SET dati_fatturazione=? WHERE id=?").run(JSON.stringify(dati), azId);
+  // credenziali per email (come la prova)
+  const pdfTermini = await scaricaTermini();
+  const inviata = await sendMail(email, `${APP_NAME}: le tue credenziali di accesso`,
+    `Gentile ${nome},\ngrazie per aver scelto ${APP_NAME}. Questi sono i dati per il primo accesso.\n\nIndirizzo: ${BASE_URL}/app\nNome utente: ${email}\nPassword provvisoria: ${pwd}\n\n`
+    + `Al primo accesso ti verrà chiesto di scegliere una nuova password. L'abbonamento parte quando il pagamento è confermato; fino ad allora puoi già usare il programma (periodo di prova fino al ${fmtD(fine)}).\n\n`
+    + `Entrando accetti i termini di utilizzo (versione ${TERMS_VERSION}): ${TERMS_URL}${pdfTermini ? " (in allegato in PDF)" : ""}.\n\n${APP_NAME} · BluCode Informatica`,
+    pdfTermini ? [{ filename: `termini-di-utilizzo-v${TERMS_VERSION}.pdf`, content: pdfTermini, contentType: "application/pdf" }] : undefined);
+  db.prepare("INSERT INTO avvisi (azienda_id,tipo,testo,creato) VALUES (?,?,?,?)").run(azId, "prova", `Acquisto dal sito: ${ragione} (${nome}, ${email}), piano ${piano.nome}.`, nowISO());
+
+  // pagamento annuale con il checkout esistente (importi sempre dal listino)
+  const az = db.prepare("SELECT * FROM aziende WHERE id=?").get(azId);
+  const sito = urlSito(b.return_url, "ok") ? { ok: urlSito(b.return_url, "ok"), annullato: urlSito(b.return_url, "annullato") } : null;
+  let r;
+  try {
+    r = await checkout(az, utente, { piano: piano.id, periodicita: PERIODO_ACQUISTO, metodo }, req.ip, { sito, senzaAvviso: true });
+  } catch (e) { // l'azienda resta (come una prova): si mostra l'errore e si può riprovare dall'area clienti
+    if (e instanceof HttpError) return errore(e.status, e.message, e.code);
+    throw e;
+  }
+  const p = db.prepare("SELECT * FROM pagamenti WHERE azienda_id=? ORDER BY creato DESC LIMIT 1").get(azId);
+  const bonifico = r.bonifico ? { intestatario: r.bonifico.intestatario, iban: r.bonifico.iban, importo: euroDec(r.bonifico.importo_cent), causale: r.bonifico.causale, pagamento: p.id } : null;
+  await inviaEmailOrdine(az, p, dati, metodo, piano, bonifico);
+  await sendMail(notifyEmails(), `Nuovo ordine dal sito: ${ragione}`,
+    `Ordine ${APP_NAME} dal sito.\n${ragione} · ${nome} · ${email}\n${piano.nome} annuale, ${PAG.METODI[metodo]}, totale ${euro(p.totale_cent)}\nCausale ${p.causale}\n`
+    + (metodo === "bonifico" ? "\nBonifico: conferma il pagamento dal pannello quando arriva l'accredito: la fattura parte solo allora.\n" : "") + `\n${BASE_URL}/admin#pagamenti`);
+  registra("sito", "ordine_dal_sito", `${ragione}: ${piano.nome} ${euro(p.totale_cent)} (${metodo})`, req.ip);
+  res.status(201).json({ ok: true, pagamento: p.id, redirect_url: r.redirect_url || null, bonifico, email, credenziali_inviate: inviata });
+}));
+/** Email «Conferma d'ordine»: contratto compilato (PDF), termini, privacy, link a manuale e video. Non blocca mai l'ordine. */
+async function inviaEmailOrdine(az, p, dati, metodo, piano, bonifico) {
+  const to = dati.email || az.email;
+  try {
+    const contratto = CONTRATTO.contrattoPdf({ piano, p, dati, metodo, terminiVersione: TERMS_VERSION, data: oggi() });
+    const [termini, privacy] = await Promise.all([scaricaTermini(), scaricaPdf(PRIVACY_PDF_URL)]);
+    const att = [{ filename: `Contratto_${APP_NAME}_${p.causale.split(" ").pop()}.pdf`, content: contratto, contentType: "application/pdf" }];
+    if (termini) att.push({ filename: `termini-di-utilizzo-v${TERMS_VERSION}.pdf`, content: termini, contentType: "application/pdf" });
+    if (privacy) att.push({ filename: "informativa-privacy.pdf", content: privacy, contentType: "application/pdf" });
+    const totale = euro(p.totale_cent);
+    const come = bonifico
+      ? `<p><b>Per attivare l'abbonamento fai il bonifico</b> di <b>${esc(totale)}</b> a <b>${esc(bonifico.intestatario)}</b><br>IBAN <b>${esc(bonifico.iban)}</b><br>Causale: <b>${esc(bonifico.causale)}</b></p>`
+        + "<p>Quando il bonifico risulta accreditato confermiamo il pagamento e ti mandiamo la fattura elettronica e la ricevuta. Nel frattempo puoi già usare il programma con il periodo di prova.</p>"
+      : "<p>Appena il pagamento è confermato ricevi la ricevuta con la proforma della fattura elettronica, e l'abbonamento annuale parte da subito.</p>";
+    const html = `<div style="font-family:Arial,sans-serif;color:#1b2b45;max-width:580px;margin:auto;border-top:4px solid #2340a8;padding:24px">`
+      + `<h2 style="color:#2340a8">Grazie per l'ordine, ${esc(PAG.nomeCliente(dati) || az.ragione)}</h2>`
+      + `<p>Hai scelto <b>${APP_NAME} ${esc(piano.nome)}</b>, abbonamento annuale: <b>${esc(totale)}</b>.</p>${come}`
+      + "<p>Ti abbiamo mandato in un'altra email le credenziali per il primo accesso.</p>"
+      + "<p><b>In allegato</b>: contratto di abbonamento, termini di utilizzo e informativa sulla privacy.</p>"
+      + `<p><b>Per cominciare</b>:<br>• <a href="${esc(MANUAL_URL)}">Manuale d'uso</a><br>• <a href="${esc(VIDEOS_URL)}">Video tutorial</a><br>• Assistenza: ${esc(contattiTesto())}</p>`
+      + `<p style="color:#4a5b75;font-size:13px">Il team ${APP_NAME} · BluCode Informatica</p></div>`;
+    const testo = `Grazie per l'ordine.\n\nHai scelto ${APP_NAME} ${piano.nome}, abbonamento annuale: ${totale}.\n`
+      + (bonifico ? `Bonifico a ${bonifico.intestatario}, IBAN ${bonifico.iban}, causale ${bonifico.causale}.\n` : "")
+      + `\nManuale: ${MANUAL_URL}\nVideo: ${VIDEOS_URL}\n\nBluCode Informatica`;
+    const ok = await sendMail([to], `Conferma d'ordine ${APP_NAME}`, testo, att, html);
+    db.prepare("UPDATE pagamenti SET email_ordine=? WHERE id=?").run(ok ? 1 : 0, p.id);
+  } catch (e) { console.error(`Email d'ordine non inviata a ${to}:`, e.message); }
+}
+// Ritorno da PayPal dopo un acquisto dal sito (senza accesso): cattura lato server, poi torna alla pagina del sito (solo se è del sito).
+app.get("/api/pagamenti/paypal/ritorno", wrap(async (req, res) => {
+  const pid = str(req.query.id, 40), r = str(req.query.r, 400);
+  const p = db.prepare("SELECT * FROM pagamenti WHERE id=? AND metodo='paypal'").get(pid);
+  let stato = "ok";
+  if (!p) stato = "errore";
+  else {
+    try {
+      if (p.stato !== "pagato") {
+        const c = await PAG.paypalCattura(p.rif_gestore, pid);
+        if (c.status === "COMPLETED") await confermaPagamento(pid, "paypal"); else stato = "errore";
+      }
+    } catch (e) { console.warn("Ritorno PayPal (sito):", e.message); stato = "errore"; }
+  }
+  const dest = urlSito(r, stato);
+  res.redirect(dest || `/app?pagamento=${encodeURIComponent(pid)}&esito=${stato}#abbonamento`);
 }));
 
 app.post("/api/login", wrap(async (req, res) => {

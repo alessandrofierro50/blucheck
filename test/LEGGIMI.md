@@ -13,3 +13,12 @@ rm -f /tmp/bc-test.db*; node -r ./test/mock-gestori.js server.js &
 node test/e2e.mjs                       # ciclo della prova, pagamenti, fattura, sola lettura, sospensione, Console
 python3 test/valida_xml.py /tmp/blucheck-fattura.xml   # XML sull'XSD ufficiale FatturaPA 1.2.2 (serve lxml)
 ```
+
+## Acquisto dal sito
+`test/acquisto.mjs` prova `GET/POST /api/public/acquisto` (carta, PayPal, bonifico, CORS, robot, 409, ritorno PayPal al sito, contratto PDF).
+Va lanciato su un database **nuovo**, con lo stesso server e le stesse variabili sopra:
+
+```bash
+rm -f /tmp/bc-test.db*; node -r ./test/mock-gestori.js server.js &
+node test/acquisto.mjs
+```
