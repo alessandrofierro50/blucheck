@@ -149,3 +149,140 @@ function fileToJpegBase64(file, max = 1600) {
     img.src = url;
   });
 }
+
+/* ---------------- tasto «Elenco» con «Nuovo» (standard BluCode, 2026-11-04) ----------------
+   Accanto a una casella di scelta: lookupRow(casella, nome, etichetta) aggiunge il tasto con l'icona elenco (anche F4 nella casella).
+   Lookups[nome] = (tasto) => openLookup({...}) apre la finestra: elenco alfabetico, ricerca in basso, frecce, Invio, clic, Esc,
+   «Nuovo» con un piccolo modulo che salva e lascia scelto l'elemento creato. Sul telefono la finestra è a tutto schermo. */
+const ICON_LIST = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4.5 6h.01M4.5 12h.01M4.5 18h.01" stroke-width="3"/></svg>`;
+const Lookups = {};
+const lookupBtn = (name, label) => `<button type="button" class="btn lk-btn" data-lookup="${esc(name)}" title="Elenco ${esc(label)} (F4)" aria-label="Elenco ${esc(label)} (F4)">${ICON_LIST}</button>`;
+const lookupRow = (control, name, label) => `<div class="lk-row">${control}${lookupBtn(name, label)}</div>`;
+/** Testo senza maiuscole né accenti, per la ricerca. */
+const fold = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+/** Mette il valore scelto in una <select> (aggiunge l'opzione se manca) e avvisa l'app come se l'avesse scelto l'utente. */
+function pickIntoSelect(sel, value, label) {
+  if (!sel) return;
+  if (![...sel.options].some((o) => o.value === value)) { const o = document.createElement("option"); o.value = value; o.textContent = label || value; sel.appendChild(o); }
+  sel.value = value; sel.classList.remove("hl");
+  sel.dispatchEvent(new Event("input", { bubbles: true })); sel.dispatchEvent(new Event("change", { bubbles: true }));
+  sel.focus();
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-lookup]"); if (!b) return;
+  e.preventDefault(); Lookups[b.dataset.lookup]?.(b);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "F4") return;
+  const row = e.target.closest?.(".lk-row"); if (!row) return;
+  e.preventDefault(); row.querySelector(".lk-btn")?.click();
+});
+
+/**
+ * Apre la finestra dell'elenco.
+ * o.title, o.rows (array), o.sortKey(row), o.hay(row) testo in cui cercare, o.view(row) → { t, s, r } (HTML già sicuro),
+ * o.placeholder, o.current (id scelto ora), o.onPick(row), o.opener (elemento da rimettere a fuoco),
+ * o.create (facoltativo) = { label, title, fields: [{ k, l, type, cls, attrs, wide, text(v), pick(v, set) }], initial(q), note, save(vals) → row }
+ */
+function openLookup(o) {
+  const rows = o.rows.slice().sort((x, y) => fold(o.sortKey(x)).localeCompare(fold(o.sortKey(y)), "it"));
+  const wrap = document.createElement("div"); wrap.className = "lk-wrap";
+  const tid = "lkT" + uid();
+  wrap.innerHTML = `<div class="lk" role="dialog" aria-modal="true" aria-labelledby="${tid}"></div>`;
+  const box = wrap.firstElementChild;
+  const prevOverflow = document.body.style.overflow;
+  document.body.appendChild(wrap); document.body.style.overflow = "hidden";
+  const opener = o.opener || document.activeElement;
+  const STEP = 200;
+  let q = "", list = rows, active = 0, shown = STEP, mode = "list", vals = null;
+  const close = () => { wrap.remove(); if (!document.querySelector(".lk-wrap")) document.body.style.overflow = prevOverflow; opener?.focus?.(); };
+  const pick = (row) => { if (!row) return; close(); o.onPick(row); };
+  const filter = () => {
+    const words = fold(q).split(/\s+/).filter(Boolean);
+    list = words.length ? rows.filter((r) => { const h = fold(o.hay(r)); return words.every((w) => h.includes(w)); }) : rows;
+    active = 0; shown = STEP;
+  };
+  const optHtml = (r, i) => { const v = o.view(r); return `<button type="button" class="lk-opt" role="option" data-i="${i}" aria-selected="${i === active}" tabindex="-1">
+    <span style="min-width:0"><span class="t">${v.t}</span>${v.s ? `<br><span class="s">${v.s}</span>` : ""}</span>${v.r ? `<span>${v.r}</span>` : "<span></span>"}</button>`; };
+  const paintList = () => {
+    const el = box.querySelector(".lk-list"); if (!el) return;
+    el.innerHTML = list.length ? list.slice(0, shown).map(optHtml).join("") + (list.length > shown ? `<div class="lk-more faint">Altri ${list.length - shown}: scorri o affina la ricerca</div>` : "")
+      : `<div class="empty">Nessun risultato${q ? ` per «${esc(q)}»` : ""}.${o.create ? ` <span>Puoi crearlo con «${esc(o.create.label)}».</span>` : ""}</div>`;
+    box.querySelector(".lk-count").textContent = q ? `${list.length} di ${rows.length}` : `${rows.length} in ordine alfabetico`;
+  };
+  const setActive = (i) => {
+    if (!list.length) return;
+    active = Math.max(0, Math.min(list.length - 1, i));
+    if (active >= shown) { shown = active + STEP; paintList(); }
+    box.querySelectorAll(".lk-opt").forEach((b) => b.setAttribute("aria-selected", String(+b.dataset.i === active)));
+    box.querySelector(`.lk-opt[data-i="${active}"]`)?.scrollIntoView({ block: "nearest" });
+  };
+  const paint = () => {
+    if (mode === "list") {
+      box.innerHTML = `<div class="lk-head"><h2 id="${tid}">${esc(o.title)} <span class="faint lk-count"></span></h2><button type="button" class="btn ghost sm" data-lk="close">Chiudi</button></div>
+        <div class="lk-list" role="listbox" aria-label="${esc(o.title)}"></div>
+        <div class="lk-foot"><div class="lk-search"><input type="search" class="lk-q" placeholder="${esc(o.placeholder || "Cerca")}" value="${esc(q)}" autocomplete="off" enterkeyhint="go" aria-label="Cerca">
+          ${o.create ? `<button type="button" class="btn" data-lk="new">+ ${esc(o.create.label)}</button>` : ""}</div>
+          <span class="faint lk-hint">Frecce per scorrere · Invio per scegliere · clic sulla riga · Esc per chiudere</span></div>`;
+      paintList();
+      const cur = o.current ? list.findIndex((r) => r.id === o.current) : -1;
+      if (cur >= 0 && !q) setActive(cur);
+      const inp = box.querySelector(".lk-q");
+      inp.addEventListener("input", () => { q = inp.value; filter(); paintList(); box.querySelector(".lk-list").scrollTop = 0; });
+      if (window.matchMedia?.("(pointer: fine)").matches) inp.focus(); else box.querySelector(".lk-list").focus?.();
+      const lst = box.querySelector(".lk-list"); lst.tabIndex = -1;
+      lst.addEventListener("scroll", () => { if (list.length > shown && lst.scrollTop + lst.clientHeight > lst.scrollHeight - 120) { shown += STEP; paintList(); } });
+      lst.addEventListener("mousemove", (e) => { const b = e.target.closest(".lk-opt"); if (b && +b.dataset.i !== active) setActive(+b.dataset.i); });
+      return;
+    }
+    const c = o.create, F = c.fields;
+    const fieldHtml = (f) => {
+      const id = "lkf_" + f.k;
+      if (f.type === "pick") return `<div class="field ${f.wide ? "lk-wide" : ""}"><span>${esc(f.l)}</span><div class="lk-row"><input type="text" id="${id}" data-k="${f.k}" readonly placeholder="Tocca per scegliere" value="${esc(f.text(vals[f.k]))}" class="lk-pickin">${`<button type="button" class="btn lk-btn" data-lk="pick" data-k="${f.k}" title="Elenco (F4)" aria-label="Scegli ${esc(f.l)} dall'elenco (F4)">${ICON_LIST}</button>`}</div></div>`;
+      return `<label class="field ${f.wide ? "lk-wide" : ""}"><span>${esc(f.l)}</span><input type="${f.type || "text"}" id="${id}" data-k="${f.k}" class="${f.cls || ""}" value="${esc(vals[f.k] ?? "")}" ${f.attrs || ""}></label>`;
+    };
+    box.innerHTML = `<div class="lk-head"><h2 id="${tid}">${esc(c.title || c.label)}</h2><button type="button" class="btn ghost sm" data-lk="close">Chiudi</button></div>
+      <form class="lk-form" novalidate><div class="grid2">${F.map(fieldHtml).join("")}</div>
+        ${c.note ? `<p class="faint" style="margin:0">${esc(c.note)}</p>` : ""}<div class="err lk-err" role="alert"></div>
+        <div class="row"><button type="submit" class="btn primary">Salva e scegli</button><button type="button" class="btn" data-lk="back">Torna all'elenco</button></div></form>`;
+    const form = box.querySelector("form");
+    form.addEventListener("input", (e) => { const k = e.target.dataset.k; if (k && e.target.type !== "checkbox") vals[k] = e.target.value; });
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = form.querySelector('[type="submit"]'); btn.disabled = true; box.querySelector(".lk-err").textContent = "";
+      try { const row = await c.save({ ...vals }); pick(row); }
+      catch (err) { box.querySelector(".lk-err").textContent = err.message || "Salvataggio non riuscito."; btn.disabled = false; }
+    });
+    const first = form.querySelector("input:not([readonly])"); first?.focus();
+  };
+  box.addEventListener("click", (e) => {
+    const opt = e.target.closest(".lk-opt"); if (opt) return pick(list[+opt.dataset.i]);
+    const b = e.target.closest("[data-lk]"); if (!b) return;
+    const a = b.dataset.lk;
+    if (a === "close") close();
+    else if (a === "new") { mode = "new"; vals = o.create.initial ? o.create.initial(q.trim()) : {}; paint(); }
+    else if (a === "back") { mode = "list"; paint(); }
+    else if (a === "pick") {
+      const f = o.create.fields.find((x) => x.k === b.dataset.k);
+      f.pick(vals[f.k], (v) => { vals[f.k] = v; const inp = box.querySelector("#lkf_" + f.k); if (inp) inp.value = f.text(v); b.focus(); });
+    }
+  });
+  wrap.addEventListener("click", (e) => { if (e.target === wrap) close(); });
+  wrap.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); return close(); }
+    if (e.key === "Tab") { // il fuoco resta nella finestra
+      const f = [...box.querySelectorAll("button:not([disabled]),input,select,textarea")].filter((x) => x.offsetParent !== null);
+      if (f.length && e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
+      else if (f.length && !e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
+      return;
+    }
+    if (mode !== "list") return;
+    const inList = e.target.classList.contains("lk-q") || e.target.closest(".lk-list");
+    if (!inList) return;
+    const k = { ArrowDown: 1, ArrowUp: -1, PageDown: 10, PageUp: -10 }[e.key];
+    if (k) { e.preventDefault(); setActive(active + k); return; }
+    if (e.key === "Enter") { e.preventDefault(); const opt = e.target.closest(".lk-opt"); pick(list[opt ? +opt.dataset.i : active]); }
+  });
+  paint();
+  return { close };
+}
