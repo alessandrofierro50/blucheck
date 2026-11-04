@@ -532,7 +532,7 @@ function sheetAppEdit() {
       <div id="qrBox">${qrBoxHtml(s)}</div>
     </div>
     <div class="panel"><h2>Esercente</h2>
-      <label class="field"><span>Cliente</span><select id="ae_clienteId" data-ae="clienteId"><option value="">— Nuovo cliente —</option>${cli.map((c) => `<option value="${c.id}" ${a.clienteId === c.id ? "selected" : ""}>${esc(c.ragione)}${c.piva ? " · " + esc(c.piva) : ""}</option>`).join("")}</select></label>
+      <div class="field"><span><label for="ae_clienteId">Cliente</label></span>${lookupRow(`<select id="ae_clienteId" data-ae="clienteId"><option value="">— Nuovo cliente —</option>${cli.map((c) => `<option value="${c.id}" ${a.clienteId === c.id ? "selected" : ""}>${esc(cliLabel(c))}</option>`).join("")}</select>`, "clienti-ae", "clienti")}</div>
       <div id="ncBox" ${a.clienteId ? "hidden" : ""}><div class="grid2">${g("ragione", "Ragione sociale")}${g("piva", "Partita IVA")}${g("domicilio", "Domicilio / Residenza")}${g("telefono", "Telefono")}</div></div>
     </div>
     <div class="panel"><h2>Registratore</h2>
@@ -620,7 +620,7 @@ function viewForm() {
   return `
   <div class="spread"><h2 style="font-size:22px">${F.id ? "Modifica rapporto " + esc(F.numero || "") : "Nuova verificazione periodica"}</h2><button class="btn ghost sm" data-act="form-cancel">Esci</button></div>
   <div class="panel"><h2>1. Registratore</h2>
-    <label class="field"><span>Apparecchio</span><select id="f_apparecchioId" data-f="apparecchioId"></select></label>
+    <div class="field"><span><label for="f_apparecchioId">Apparecchio</label></span>${lookupRow(`<select id="f_apparecchioId" data-f="apparecchioId"></select>`, "apparecchi-ver", "apparecchi")}</div>
     <div id="fAppInfo"></div>
     <div class="row"><button class="btn sm" data-act="new-app">+ Nuovo apparecchio</button><button class="btn sm" data-act="qr-check">Scansiona QR per controllo 2.2</button></div>
     <div id="qrCheckBox"></div>
@@ -818,6 +818,94 @@ function applyAeToDraft(s, d, url) {
   for (const id of hl) document.getElementById(id)?.classList.add("hl");
 }
 function updateNextDates() { const d = UI.sheet?.draft; if (!d) return; const a = $("#aeNextVP"), b = $("#aeNextDG"); if (a) a.textContent = fmtD(addYears(d.ultimaVerifica, 2)); if (b) b.textContent = fmtD(addYears(d.ultimoDgfe, 1)); }
+
+/* ============================== tasto «Elenco» (clienti, apparecchi) ============================== */
+const cliLabel = (c) => `${c.ragione || "—"}${c.piva ? " · " + c.piva : ""}`;
+const appLabel = (a) => `${cliente(a.clienteId)?.ragione || "—"} · ${a.modello || ""} · ${a.matricola || ""}`;
+const writeOk = () => { if (!guardWrite()) throw new Error("BluCheck è in sola lettura: non puoi creare nuovi elementi."); };
+function lookupClienti({ current, opener, onPick }) {
+  openLookup({
+    title: "Clienti", rows: S.clienti, current, opener, onPick,
+    sortKey: (c) => c.ragione || "",
+    hay: (c) => [c.ragione, c.domicilio, c.piva, c.cf, c.codiceFiscale, c.telefono, c.email, c.referente].join(" "),
+    view: (c) => ({
+      t: esc(c.ragione || "—"),
+      s: [c.domicilio && esc(c.domicilio), c.piva && `P.IVA <span class="mono">${esc(c.piva)}</span>`, (c.cf || c.codiceFiscale) && `CF <span class="mono">${esc(c.cf || c.codiceFiscale)}</span>`, c.telefono && esc(c.telefono)].filter(Boolean).join(" · "),
+      r: `<span class="pill n">${S.apparecchi.filter((a) => a.clienteId === c.id).length} RT</span>`,
+    }),
+    placeholder: "Cerca per ragione sociale, città, partita IVA, telefono o codice fiscale",
+    create: readonly() ? null : {
+      label: "Nuovo cliente",
+      fields: [
+        { k: "ragione", l: "Ragione sociale o cognome e nome", wide: true },
+        { k: "piva", l: "Partita IVA", cls: "mono", attrs: 'inputmode="numeric" maxlength="11"' },
+        { k: "telefono", l: "Telefono", type: "tel" },
+        { k: "domicilio", l: "Domicilio / Residenza (indirizzo e città)", wide: true },
+        { k: "email", l: "Email", type: "email" },
+      ],
+      initial: (q) => (/^\d{11}$/.test(q) ? { piva: q } : { ragione: q }),
+      note: "Referente e note si completano dopo nella scheda del cliente.",
+      save: async (v) => {
+        writeOk();
+        const ragione = (v.ragione || "").trim(), piva = (v.piva || "").replace(/\s/g, "");
+        if (!ragione) throw new Error("Inserisci la ragione sociale.");
+        if (piva && !/^\d{11}$/.test(piva)) throw new Error("La partita IVA ha 11 cifre.");
+        const dup = piva && S.clienti.find((c) => (c.piva || "").replace(/\s/g, "") === piva);
+        if (dup) throw new Error(`Questa partita IVA è già di «${dup.ragione}»: torna all'elenco e sceglilo.`);
+        const id = uid();
+        const c = await put("clienti", id, { id, ragione, piva, domicilio: (v.domicilio || "").trim(), telefono: (v.telefono || "").trim(), email: (v.email || "").trim(), referente: "", note: "" });
+        toast("Cliente salvato"); return c;
+      },
+    },
+  });
+}
+function lookupApparecchi({ current, opener, onPick }) {
+  openLookup({
+    title: "Apparecchi", rows: S.apparecchi.filter((a) => !a.dismesso || a.id === current), current, opener, onPick,
+    sortKey: (a) => `${cliente(a.clienteId)?.ragione || "~"} ${a.modello || ""} ${a.matricola || ""}`,
+    hay: (a) => { const c = cliente(a.clienteId); return [a.matricola, a.modello, c?.ragione, c?.piva, a.indirizzo, a.localita, a.firmware].join(" "); },
+    view: (a) => {
+      const st = stato(a.ultimaVerifica ? addYears(a.ultimaVerifica, 2) : "");
+      return { t: esc(cliente(a.clienteId)?.ragione || "Cliente non indicato"),
+        s: `${esc(a.modello || "Modello non indicato")} · <span class="mono">${esc(a.matricola || "")}</span>${a.localita ? " · " + esc(a.localita) : ""}`,
+        r: `<span class="pill ${st.cls}">VP ${st.n === null ? "—" : fmtD(addYears(a.ultimaVerifica, 2))}</span>` };
+    },
+    placeholder: "Cerca per matricola, marca e modello o cliente",
+    create: readonly() ? null : {
+      label: "Nuovo apparecchio",
+      fields: [
+        { k: "clienteId", l: "Esercente (cliente)", type: "pick", wide: true, text: (id) => (cliente(id) ? cliLabel(cliente(id)) : ""),
+          pick: (cur, set) => lookupClienti({ current: cur, onPick: (c) => set(c.id) }) },
+        { k: "modello", l: "Marchio / Modello" },
+        { k: "matricola", l: "Matricola", cls: "mono", attrs: 'autocapitalize="characters"' },
+        { k: "indirizzo", l: "Ubicazione: indirizzo" },
+        { k: "localita", l: "CAP / Località / Prov." },
+        { k: "ultimaVerifica", l: "Ultima verificazione periodica", type: "date" },
+      ],
+      initial: (q) => (/\d/.test(q) && /^[A-Za-z0-9]{6,}$/.test(q) ? { matricola: q.toUpperCase() } : { modello: q }),
+      note: "Firmware, DGFE, dati dell'Agenzia (QR) e note si completano dopo nella scheda dell'apparecchio.",
+      save: async (v) => {
+        writeOk();
+        const matricola = (v.matricola || "").trim().toUpperCase();
+        if (!v.clienteId || !cliente(v.clienteId)) throw new Error("Scegli l'esercente dall'elenco (o crealo con «Nuovo cliente»).");
+        if (!matricola) throw new Error("Inserisci la matricola del registratore.");
+        const dup = S.apparecchi.find((a) => norm(a.matricola) === norm(matricola));
+        if (dup) throw new Error(`La matricola ${matricola} è già in archivio (${cliente(dup.clienteId)?.ragione || "—"}): torna all'elenco e sceglila.`);
+        const id = uid();
+        const a = await put("apparecchi", id, { id, clienteId: v.clienteId, modello: (v.modello || "").trim(), matricola, indirizzo: (v.indirizzo || "").trim(), localita: (v.localita || "").trim(), ultimaVerifica: v.ultimaVerifica || "", dgfeAnnuale: false, dismesso: false, note: "" });
+        toast("Apparecchio salvato"); return a;
+      },
+    },
+  });
+}
+Lookups["clienti-ae"] = (btn) => {
+  const sel = btn.closest(".lk-row").querySelector("select");
+  lookupClienti({ current: sel.value, opener: btn, onPick: (c) => pickIntoSelect(sel, c.id, cliLabel(c)) });
+};
+Lookups["apparecchi-ver"] = (btn) => {
+  const sel = btn.closest(".lk-row").querySelector("select");
+  lookupApparecchi({ current: sel.value, opener: btn, onPick: (a) => pickIntoSelect(sel, a.id, appLabel(a)) });
+};
 
 /* ============================== PDF ============================== */
 async function makePdf(kind, id, win) {
