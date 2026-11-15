@@ -157,6 +157,75 @@ const tecnicoNome = (id) => S.tecnici.find((t) => t.id === id)?.nome || "";
 function fromHash() { const h = location.hash.slice(1); if (VALID_TABS.includes(h)) UI.tab = h; if (h === "abbonamento") { UI.tab = "impostazioni"; vaiAbb = true; } }
 window.addEventListener("hashchange", () => { if (UI.form) return; fromHash(); render(); });
 
+
+// ----- Tasto «?»: a cosa serve la sezione aperta e cosa si scrive in ogni campo -----
+const AIUTI = {
+  scadenze: {
+    titolo: "Scadenze",
+    serve: "Gli apparecchi da verificare: quelli scaduti, quelli che scadono a breve e quelli a posto.",
+    campi: [
+      ["Scaduto", "La verificazione periodica è oltre i due anni: l'apparecchio è fuori regola."],
+      ["In scadenza", "Manca poco: è il momento di chiamare il cliente e fissare l'intervento."],
+      ["Cliente", "Un tocco apre la sua scheda con telefono e indirizzo."],
+    ],
+    consiglio: "Guarda questa pagina all'inizio della settimana: è da qui che nasce il giro dei tecnici.",
+  },
+  apparecchi: {
+    titolo: "Apparecchi",
+    serve: "I registratori telematici che segui: matricola, modello, cliente e data dell'ultima verificazione.",
+    campi: [
+      ["Matricola", "Quella sul corpo dell'apparecchio: è il dato che lo identifica davvero."],
+      ["QR dell'Agenzia", "Inquadrandolo, i dati dell'apparecchio si compilano da soli."],
+      ["Prossima verificazione", "Due anni dall'ultima: il programma la calcola e la mette nelle scadenze."],
+    ],
+  },
+  clienti: {
+    titolo: "Clienti",
+    serve: "Gli esercenti: dati, sedi e apparecchi installati da ognuno.",
+    campi: [
+      ["Ragione sociale e P.IVA", "Finiscono sul rapporto di verificazione e sulla dichiarazione."],
+      ["Sede", "Dove sta l'apparecchio: serve al tecnico per arrivarci."],
+      ["Telefono", "Per avvisare quando la verificazione sta per scadere."],
+    ],
+  },
+  verifiche: {
+    titolo: "Rapporti di verificazione",
+    serve: "I rapporti compilati: cosa è stato controllato, l'esito e la firma del tecnico e del cliente.",
+    campi: [
+      ["Esito", "Regolare o non regolare: decide se l'apparecchio può restare in servizio."],
+      ["Firme", "Si firmano sullo schermo e restano nel PDF."],
+      ["PDF", "Il rapporto da lasciare al cliente e da conservare."],
+    ],
+  },
+  impostazioni: {
+    titolo: "Impostazioni",
+    serve: "Il tuo profilo, i dati del laboratorio, i tecnici, l'abbonamento e l'esportazione dei dati.",
+    campi: [
+      ["Dati del laboratorio", "Compaiono nell'intestazione dei rapporti e nella dichiarazione: controllali bene."],
+      ["Tecnici", "Chi entra e quanti ne prevede il tuo abbonamento."],
+      ["Abbonamento", "Scadenza e rinnovo con carta, PayPal o bonifico."],
+      ["Esporta dati", "Tutto l'archivio dell'azienda, da conservare o da portare altrove."],
+    ],
+  },
+};
+function aiutoDialog() {
+  const a = AIUTI[UI.tab];
+  if (!a) return toast("Per questa sezione non c'è ancora una spiegazione.");
+  const campi = (a.campi || []).map(([n, t]) => `<p style="margin:10px 0 0"><b>${esc(n)}</b><br><span class="faint">${esc(t)}</span></p>`).join("");
+  const consiglio = a.consiglio ? `<p style="margin:14px 0 0;padding-top:12px;border-top:1px solid var(--line)"><b>Consiglio · </b>${esc(a.consiglio)}</p>` : "";
+  const w = document.createElement("div");
+  w.className = "sheet-wrap";
+  w.innerHTML = `<div class="sheet" role="dialog" aria-label="${esc(a.titolo)}"><div class="sheet-head gut"><h2>${esc(a.titolo)}</h2>` +
+    `<button class="btn sm" data-x="1">Chiudi</button></div><div class="sheet-body gut"><p style="margin:0">${esc(a.serve)}</p>${campi}${consiglio}</div></div>`;
+  const chiudi = () => { w.remove(); document.body.style.overflow = ""; document.removeEventListener("keydown", esc2); };
+  const esc2 = (e) => { if (e.key === "Escape") chiudi(); };
+  w.addEventListener("click", (e) => { if (e.target === w || e.target.dataset.x) chiudi(); });
+  document.addEventListener("keydown", esc2);
+  document.body.append(w);
+  document.body.style.overflow = "hidden";
+}
+document.addEventListener("keydown", (e) => { if (e.key === "F1" && S.loaded && !UI.form) { e.preventDefault(); aiutoDialog(); } });
+
 function render(fromSync) {
   if (!S.loaded) return;
   document.querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-current", !UI.form && b.dataset.tab === UI.tab ? "page" : "false"));
@@ -938,6 +1007,7 @@ document.addEventListener("click", async (e) => {
   if (act === "sheet-bg") { if (e.target === el) closeSheet(); return; }
   if (el.tagName === "A" && el.getAttribute("href") === "#") e.preventDefault();
   switch (act) {
+    case "aiuto": aiutoDialog(); break;
     case "close": closeSheet(); break;
     case "filtro": UI.filtro = el.dataset.v; render(); break;
     case "tipo": UI.tipo = el.dataset.v; render(); break;

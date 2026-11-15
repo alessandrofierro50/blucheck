@@ -11,6 +11,11 @@ Questo software fa parte del progetto BluCode Informatica. La memoria condivisa 
 - **A fine sessione:** scrivi il riepilogo in `blucheck/sessioni/AAAA-MM-GG.md`, aggiorna `blucheck/STATO.md` e, se serve, `comune/`.
 - Se cambiano funzioni, prezzi, nome o stato, segnala che va aggiornata la pagina del sito (`content.py`).
 
+## Tasto «?»
+- (2026-11-15, standard comune, modello BluGest) Nella barra in alto un tasto «?» spiega a cosa serve la sezione aperta
+  (Scadenze, Apparecchi, Clienti, Rapporti, Impostazioni) e cosa si scrive in ogni campo; si apre anche con **F1**.
+  Testi e finestra in `public/js/app.js` (`AIUTI`, `aiutoDialog`), con il pannello laterale già usato dal programma.
+
 ## Note tecniche
 - Node.js 20, Express, SQLite (better-sqlite3), pm2. Una sola istanza (SQLite).
 - `server.js` API, abbonamenti, pagamenti, acquisto dal sito, Console · `contratto.js` contratto PDF dell'acquisto · `abbonamento.js` fasi e modelli email · `pagamenti.js` fatturazione, Stripe/PayPal, XML, proforma · `test/` prove (e2e con gestori simulati) · `ae-qr.js` lettura della pagina AdE del QR · `public/js/app.js` app tecnici · `public/js/admin.js` superuser · `public/js/pdf.js` moduli PDF.
