@@ -25,3 +25,9 @@ Questo software fa parte del progetto BluCode Informatica. La memoria condivisa 
       `VIDEOS_URL`, `PRIVACY_PDF_URL`; non blocca mai l'ordine). Carta/PayPal: fattura al webhook; bonifico: nessun documento finché il super admin non
       conferma. Test `test/acquisto.mjs` (vedi `test/LEGGIMI.md`). DA FARE: pagina `/acquista/` del sito con BluCheck (indirizzo in `site.json`, già presente),
       variabili `MANUAL_URL`/`VIDEOS_URL`/`PRIVACY_PDF_URL` nel `.env` del server, listino da confermare (prezzi provvisori), revisione legale del contratto.
+- [x] Tasto «Elenco» con «Nuovo» (2026-11-04, standard BluCode, comportamento come `Lookup.tsx` di BluGest): `openLookup`, `lookupRow`,
+      `pickIntoSelect`, registro `Lookups` in `public/js/common.js`, stile `.lk-*` in `blucheck.css`. Accanto a Cliente (scheda apparecchio),
+      Apparecchio (verifica) e Piano (pannello: nuova azienda, dati azienda, periodo a mano); anche F4 nella casella. Elenco alfabetico,
+      ricerca in basso (clienti: ragione sociale, città/domicilio, P.IVA, telefono, CF; apparecchi: matricola, marca e modello, cliente),
+      frecce/Invio/clic/Esc; «Nuovo» crea cliente (PUT /api/dati/clienti/:id), apparecchio (esercente da un secondo elenco) o piano
+      (POST /api/su/piani) e lo lascia scelto. A tutto schermo sotto 640 px. Non c'è scelta del tecnico (il rapporto è di chi lo compila).

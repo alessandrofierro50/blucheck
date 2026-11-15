@@ -179,7 +179,7 @@ function sAzienda() {
       ${a.prova ? `<div class="row"><button class="btn" data-act="converti" data-id="${a.id}">Converti la prova in abbonamento</button><span class="faint">Di solito non serve: il primo pagamento converte la prova da solo.</span></div>` : ""}
       ${d.dati_fatturazione ? `<p class="faint" style="margin:0">Dati di fatturazione: ${esc(d.dati_fatturazione.denominazione || `${d.dati_fatturazione.nome || ""} ${d.dati_fatturazione.cognome || ""}`)} · ${esc(d.dati_fatturazione.partita_iva || d.dati_fatturazione.codice_fiscale || "")} · ${esc(d.dati_fatturazione.codice_destinatario || d.dati_fatturazione.pec || "")}</p>` : ""}
       <details><summary>Nuovo periodo a mano (proroga, omaggio, accordo) — senza fattura</summary><div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">
-        <div class="grid2"><label class="field"><span>Piano</span><select id="pgPiano">${pianiOpt(a.piano_id)}</select></label>${fld("pgMesi", "Mesi da aggiungere", "", "number", 'min="1" placeholder="dal piano"')}
+        <div class="grid2"><div class="field"><span><label for="pgPiano">Piano</label></span>${lookupRow(`<select id="pgPiano">${pianiOpt(a.piano_id)}</select>`, "piani", "piani")}</div>${fld("pgMesi", "Mesi da aggiungere", "", "number", 'min="1" placeholder="dal piano"')}
         ${fld("pgFine", "Oppure fino al", "", "date")}${fld("pgImporto", "Importo (€)", "", "text", 'inputmode="decimal" placeholder="0,00"')}
         <label class="field"><span>Tipo</span><select id="pgMetodo"><option value="manuale">Accordo o proroga</option><option value="omaggio">Omaggio</option><option value="contanti">Contanti</option><option value="bonifico_esterno">Bonifico già incassato fuori dall'app</option><option value="altro">Altro</option></select></label>${fld("pgDescr", "Descrizione (facoltativa)", "")}</div>
         ${a.prova ? `<label class="check"><input type="checkbox" id="pgRestaProva"> È una proroga della prova (resta in prova)</label>` : ""}
@@ -189,7 +189,7 @@ function sAzienda() {
     <div class="panel"><h2>Dati e stato</h2>
       <div class="grid2">${fld("azRagione", "Ragione sociale", a.ragione)}${fld("azPiva", "Partita IVA", a.piva, "text", 'class="mono"')}${fld("azIndirizzo", "Indirizzo", a.indirizzo)}${fld("azCap", "CAP / Località / Prov.", a.cap)}${fld("azTel", "Telefono", a.telefono, "tel")}${fld("azEmail", "Email (riceve gli avvisi)", a.email, "email")}
       <label class="field"><span>Stato</span><select id="azStato">${[["attiva", "Attiva"], ["sospesa", "Sospesa (vede solo la pagina Abbonamento)"], ["in_attesa", "Da abilitare"]].map(([k, l]) => `<option value="${k}" ${a.stato === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
-      ${fld("azFine", "Abbonamento valido fino al", a.abbonamento_fine || "", "date")}${fld("azMax", "Numero massimo di tecnici", a.max_tecnici, "number", 'min="1"')}<label class="field"><span>Piano</span><select id="azPiano">${pianiOpt(a.piano_id)}</select></label></div>
+      ${fld("azFine", "Abbonamento valido fino al", a.abbonamento_fine || "", "date")}${fld("azMax", "Numero massimo di tecnici", a.max_tecnici, "number", 'min="1"')}<div class="field"><span><label for="azPiano">Piano</label></span>${lookupRow(`<select id="azPiano">${pianiOpt(a.piano_id)}</select>`, "piani", "piani")}</div></div>
       <label class="field"><span>Note interne</span><textarea id="azNote">${esc(a.note || "")}</textarea></label>
       <div class="row"><button class="btn primary" data-act="save-az" data-id="${a.id}">Salva</button></div></div>
     <div class="panel"><h2>Utenti</h2><div class="list">${d.utenti.map((u) => `<div class="item static stack"><span class="stripe ${u.attivo ? "acc" : ""}"></span>
@@ -209,7 +209,7 @@ function sNuovaAz() {
     <div class="panel"><h2>Laboratorio</h2><div class="grid2">${fld("naRagione", "Ragione sociale")}${fld("naPiva", "Partita IVA", "", "text", 'class="mono"')}${fld("naIndirizzo", "Indirizzo")}${fld("naCap", "CAP / Località / Prov.")}${fld("naTel", "Telefono", "", "tel")}${fld("naEmail", "Email aziendale (avvisi)", "", "email")}</div></div>
     <div class="panel"><h2>Amministratore dell'azienda</h2><p class="faint" style="margin:0">È anche il primo tecnico: gestisce gli altri tecnici e l'abbonamento.</p>
       <div class="grid2">${fld("naNome", "Cognome e nome")}${fld("naAdminEmail", "Email di accesso", "", "email")}${fld("naCf", "Codice fiscale", "", "text", 'class="mono"')}${fld("naSigillo", "Sigillo / identificativo")}</div></div>
-    <div class="panel"><h2>Abbonamento</h2><label class="check"><input type="checkbox" id="naProva" checked> Parte come prova gratuita (diventa abbonamento con il primo pagamento)</label><div class="grid3">${fld("naFine", "Valido fino al", def, "date")}${fld("naMax", "Numero massimo di tecnici", 1, "number", 'min="1"')}<label class="field"><span>Piano</span><select id="naPiano"><option value="">—</option>${A.piani.map((p) => `<option value="${esc(p.id)}">${esc(p.nome)} (${p.max_tecnici} tecnici)</option>`).join("")}</select></label></div>
+    <div class="panel"><h2>Abbonamento</h2><label class="check"><input type="checkbox" id="naProva" checked> Parte come prova gratuita (diventa abbonamento con il primo pagamento)</label><div class="grid3">${fld("naFine", "Valido fino al", def, "date")}${fld("naMax", "Numero massimo di tecnici", 1, "number", 'min="1"')}<div class="field"><span><label for="naPiano">Piano</label></span>${lookupRow(`<select id="naPiano"><option value="">—</option>${A.piani.map((p) => `<option value="${esc(p.id)}">${esc(p.nome)} (${p.max_tecnici} tecnici)</option>`).join("")}</select>`, "piani", "piani")}</div></div>
       <label class="field"><span>Note interne</span><textarea id="naNote"></textarea></label></div>
     <div class="row"><button class="btn primary" data-act="crea-az">Crea azienda e genera credenziali</button><button class="btn" data-act="close">Annulla</button></div></div>`;
 }
@@ -226,6 +226,38 @@ async function openAz(id) {
   try { A.sheet.data = await api("GET", "/api/su/aziende/" + id); renderSheet(); } catch (e) { toast(e.message); }
 }
 async function refreshAz() { const id = A.sheet?.id; await loadAll(); if (id && A.sheet?.kind === "az") { A.sheet.data = await api("GET", "/api/su/aziende/" + id); } render(); }
+
+/* ---------------- tasto «Elenco» dei piani ---------------- */
+const pianoLabel = (p) => `${p.nome} · ${euro(p.prezzo_cent)} / ${p.mesi} mesi · ${p.max_tecnici} tecnici`;
+Lookups.piani = (btn) => {
+  const sel = btn.closest(".lk-row").querySelector("select");
+  openLookup({
+    title: "Piani", rows: A.piani, current: sel.value, opener: btn,
+    onPick: (p) => pickIntoSelect(sel, p.id, pianoLabel(p)),
+    sortKey: (p) => p.nome || p.id,
+    hay: (p) => [p.nome, p.descrizione, p.id].join(" "),
+    view: (p) => ({ t: esc(p.nome), s: `${euro(p.prezzo_cent)} / ${p.mesi} mesi${p.prezzo_mese_cent ? ` (o ${euro(p.prezzo_mese_cent)} al mese)` : ""} · max ${p.max_tecnici} tecnici · codice <span class="mono">${esc(p.id)}</span>${p.descrizione ? " · " + esc(p.descrizione) : ""}`,
+      r: p.attivo ? `<span class="pill ok">in vendita</span>` : `<span class="pill n">nascosto</span>` }),
+    placeholder: "Cerca per nome, descrizione o codice",
+    create: {
+      label: "Nuovo piano",
+      fields: [
+        { k: "nome", l: "Nome" }, { k: "id", l: "Codice (lettere minuscole, es. team)", cls: "mono" },
+        { k: "descrizione", l: "Descrizione breve", wide: true },
+        { k: "max_tecnici", l: "Numero massimo di tecnici", type: "number", attrs: 'min="1"' }, { k: "mesi", l: "Durata (mesi)", type: "number", attrs: 'min="1"' },
+        { k: "prezzo", l: "Prezzo del periodo (€)", attrs: 'inputmode="decimal"' }, { k: "prezzo_mese", l: "Prezzo mensile (€, facoltativo)", attrs: 'inputmode="decimal"' },
+      ],
+      initial: (q) => ({ nome: q, max_tecnici: 1, mesi: 12, prezzo: "" }),
+      note: "Il piano nasce in vendita: si nasconde o si modifica dopo da «Piani».",
+      save: async (v) => {
+        if (!(v.nome || "").trim()) throw new Error("Il piano deve avere un nome.");
+        const r = await api("POST", "/api/su/piani", { ...v, attivo: true, ordine: A.piani.length + 1 });
+        A.piani = await api("GET", "/api/su/piani"); toast("Piano salvato");
+        return A.piani.find((p) => p.id === r.id);
+      },
+    },
+  });
+};
 
 /* ---------------- eventi ---------------- */
 document.addEventListener("click", async (e) => {

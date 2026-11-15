@@ -171,3 +171,34 @@ table.t td.num,table.t th.num{text-align:right;font-variant-numeric:tabular-nums
 
 @media (prefers-reduced-motion:no-preference){.sheet{animation:slide .18s ease-out}@keyframes slide{from{transform:translateX(24px);opacity:.6}}}
 @media print{header.top,.bar{display:none}}
+
+/* tasto «Elenco» con «Nuovo» (standard BluCode, 2026-11-04) */
+.lk-row{display:flex;gap:6px;align-items:stretch;min-width:0}
+.lk-row>select,.lk-row>input{flex:1;min-width:0}
+.btn.lk-btn{padding:0;width:42px;flex:none;color:var(--accent)}
+.lk-btn svg{width:20px;height:20px}
+.lk-pickin{cursor:pointer}
+.lk-wrap{position:fixed;inset:0;z-index:70;background:rgba(8,16,32,.45);display:flex;align-items:center;justify-content:center;padding:16px}
+.lk{background:var(--surface);border:1px solid var(--line);border-radius:12px;width:min(680px,100%);height:min(680px,100%);display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,.25);overflow:hidden}
+.lk-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.lk-head h2{font-size:17px;min-width:0;overflow-wrap:anywhere}
+.lk-head .faint{font-family:var(--f-body);font-weight:400}
+.lk-list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;outline:none}
+.lk-opt{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;width:100%;text-align:left;padding:9px 16px;border:0;border-bottom:1px solid var(--line);background:none;cursor:pointer;color:var(--ink);min-height:48px}
+.lk-opt[aria-selected="true"]{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+.lk-opt .t{font-weight:600;overflow-wrap:anywhere}
+.lk-opt .s{font-size:13px;color:var(--ink-2);overflow-wrap:anywhere}
+.lk-more{padding:10px 16px;text-align:center}
+.lk-foot{border-top:1px solid var(--line);padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:6px;background:var(--surface-2)}
+.lk-search{display:flex;gap:8px}
+.lk-search input{flex:1;min-width:0}
+.lk-search .btn{white-space:nowrap}
+.lk-form{padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;flex:1;min-height:0}
+.lk-wide{grid-column:1/-1}
+@media (max-width:640px){
+  .lk-wrap{padding:0}
+  .lk{width:100%;height:100%;border:0;border-radius:0;padding-top:env(safe-area-inset-top,0px)}
+  .lk-hint{display:none}
+  .lk-search .btn{padding-inline:10px}
+}
+@media print{.lk-wrap,.lk-btn{display:none}}
