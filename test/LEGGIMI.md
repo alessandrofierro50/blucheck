@@ -22,3 +22,12 @@ Va lanciato su un database **nuovo**, con lo stesso server e le stesse variabili
 rm -f /tmp/bc-test.db*; node -r ./test/mock-gestori.js server.js &
 node test/acquisto.mjs
 ```
+
+## Import dello storico
+`test/storico.mjs` prova `POST /api/importa-storico` (anteprima, conferma con backup in `data/backup/`, niente doppioni al secondo import).
+Anche questa va lanciata su un database **nuovo** (`e2e.mjs` cambia le credenziali del superuser alla fine):
+
+```bash
+rm -f /tmp/bc-test.db*; node -r ./test/mock-gestori.js server.js &
+node test/storico.mjs
+```
