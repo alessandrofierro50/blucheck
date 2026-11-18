@@ -169,11 +169,13 @@ function fotoPannelli() {
   <div class="panel"><h2>4. Stampa</h2>
     <p class="faint" style="margin:0">${bt ? "Bluetooth diretto: stampanti «BLE» con Chrome o Edge (Android o computer)." : and ? "Questo browser non vede le stampanti Bluetooth: apri la pagina con Chrome, oppure usa RawBT." : "Dal computer usa «USB / porta COM» (Chrome o Edge) o «Stampa col driver»; su iPhone «Condividi» e scegli l'app della stampante."}${btPref().nome ? ` Ultima stampante: <b>${esc(btPref().nome)}</b>.` : ""}</p>
     <div class="row">
-      ${bt ? `<button class="btn primary" data-ft="bt" ${!r || FT.busy ? "disabled" : ""}>${FT.busy ? `Stampa in corso… ${Math.round(FT.pct * 100)}%` : "Stampa con Bluetooth"}</button>${Termica.device ? `<button class="btn sm" data-ft="bt-cambia" ${!r || FT.busy ? "disabled" : ""}>Cambia stampante</button>` : ""}` : ""}
+      ${bt ? `<button class="btn primary" data-ft="bt" ${!r || FT.busy ? "disabled" : ""}>${FT.busy && FT.come !== "ser" ? `Stampa in corso… ${Math.round(FT.pct * 100)}%` : "Stampa con Bluetooth"}</button>${Termica.device ? `<button class="btn sm" data-ft="bt-cambia" ${!r || FT.busy ? "disabled" : ""}>Cambia stampante</button>` : ""}` : ""}
       ${and ? `<button class="btn" data-ft="rawbt" ${!r ? "disabled" : ""}>Stampa con RawBT</button>` : ""}
-      ${ser ? `<button class="btn${bt ? "" : " primary"}" data-ft="ser" ${!r || FT.busy ? "disabled" : ""}>Stampa da USB / porta COM</button>` : ""}
+      ${ser ? `<button class="btn${bt ? "" : " primary"}" data-ft="ser" ${!r || FT.busy ? "disabled" : ""}>${FT.busy && FT.come === "ser" ? `Stampa in corso… ${Math.round(FT.pct * 100)}%` : "Stampa da USB / porta COM"}</button>` : ""}
       <button class="btn" data-ft="driver" ${!r ? "disabled" : ""}>Stampa col driver</button>
-      <button class="btn" data-ft="png" ${!r ? "disabled" : ""}>${navigator.canShare ? "Condividi" : "Scarica"} immagine</button></div>
+      <button class="btn" data-ft="png" ${!r ? "disabled" : ""}>${navigator.canShare ? "Condividi" : "Scarica"} immagine</button>
+      ${FT.busy ? `<button class="btn" data-ft="annulla">Annulla</button>` : ""}</div>
+    ${!r ? `<p class="faint" style="margin:0"><b>Scegli prima una foto al punto 1:</b> i tasti di stampa si attivano quando c'è l'anteprima.</p>` : ""}
     ${bt || ser ? `<div class="field"><span>Velocità stampa</span><div class="seg wide choose" role="group">${seg("vel", btPref().velocita, [["normale", "Normale"], ["lenta", "Lenta"], ["molto", "Molto lenta"]])}</div></div>
     <p class="faint" style="margin:0">Per le foto «Lenta» o «Molto lenta» danno neri più pieni e niente righe bianche.</p>` : ""}
     ${FT.err ? `<div class="qrres"><b>Stampa non riuscita</b>${esc(FT.err)}</div>` : ""}</div>`;
@@ -209,8 +211,8 @@ async function fotoApri(file) {
 }
 const fotoBytes = () => { if (!FT.ris) throw new Error("Scegli prima una foto."); return escposFoto(FT.ris); };
 async function fotoInvia(come) {
-  if (FT.busy || !FT.ris) return; FT.busy = true; FT.pct = 0; FT.err = ""; fotoDisegna();
-  let last = 0; const prog = (p) => { if (p - last >= 0.05 || p === 1) { last = p; FT.pct = p; const b = $('[data-ft="bt"]'); if (b) b.textContent = `Stampa in corso… ${Math.round(p * 100)}%`; } };
+  if (FT.busy || !FT.ris) return; FT.busy = true; FT.come = come; FT.pct = 0; FT.err = ""; fotoDisegna();
+  let last = 0; const prog = (p) => { if (p - last >= 0.05 || p === 1) { last = p; FT.pct = p; const b = $(`[data-ft="${come === "ser" ? "ser" : "bt"}"]`); if (b) b.textContent = `Stampa in corso… ${Math.round(p * 100)}%`; } };
   try {
     if (come === "ser") await serStampa(fotoBytes(), false, prog);
     else { await btCollega(come === "bt-cambia"); await btStampa(fotoBytes(), prog); }
@@ -245,6 +247,7 @@ function fotoAvvia() {
       case "metodo": FT.metodo = v; fotoPrefs(); fotoRicalcola(true); break;
       case "reset": Object.assign(FT, FOTO_DEF); fotoPrefs(); fotoRicalcola(true); break;
       case "bt": case "bt-cambia": case "ser": await fotoInvia(el.dataset.ft); break;
+      case "annulla": stampaAnnulla(); break;
       case "rawbt": try { location.href = rawbtUrl(fotoBytes()); setTimeout(() => toast("Se non si apre niente, installa RawBT dal Play Store e collega lì la stampante.", 6000), 1500); } catch (err) { toast(err.message); } break;
       case "driver": fotoTela(); window.print(); break;
       case "png": await fotoPng(); break;

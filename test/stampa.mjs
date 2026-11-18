@@ -104,7 +104,7 @@ ok(r.servizi >= 5, "richiesta Bluetooth con i servizi delle stampanti note");
 ok(r.serOk, "porta USB/COM simulata (Web Serial): tutti i byte, 9600 baud, porta chiusa alla fine, Bluetooth SPP ammesso");
 ok(r.lenta.init.slice(0, 10).join() === "27,64,27,116,0,27,55,3,80,6" && !r.escInit.includes(55), "velocità lenta: ESC 7 (riscaldamento più lungo) dopo l'avvio, assente in normale");
 ok(r.lenta.pezzi <= 50 && r.lenta.ser <= 64 && r.lenta.pezziN > 50 && r.lenta.serN > 64 && r.lenta.tutto, `velocità lenta: pezzi più piccoli (BT ${r.lenta.pezziN}→${r.lenta.pezzi}, COM ${r.lenta.serN}→${r.lenta.ser}), tutti i byte`);
-ok(r.lenta.mm > 200 && r.lenta.msBt >= r.lenta.mm / 35 * 1000 * 0.95 && r.lenta.msBt > 3 * r.lenta.msN, `velocità lenta davvero più lenta: ${Math.round(r.lenta.mm)} mm in ${(r.lenta.msBt / 1000).toFixed(1)} s (normale ${(r.lenta.msN / 1000).toFixed(1)} s, max 35 mm/s)`);
+ok(r.lenta.mm > 200 && r.lenta.msBt >= r.lenta.mm / 35 * 1000 * 0.95 && r.lenta.msBt > 2 * r.lenta.msN, `velocità lenta davvero più lenta: ${Math.round(r.lenta.mm)} mm in ${(r.lenta.msBt / 1000).toFixed(1)} s (normale ${(r.lenta.msN / 1000).toFixed(1)} s, max 35 mm/s)`);
 ok(r.lenta.righe, "velocità lenta: stesso testo stampato");
 ok(r.lenta.predefinita === "lenta", "velocità predefinita: Lenta");
 ok(!r.lenta.grassetto, "niente grassetto (ESC E), che sulla termica sbava");

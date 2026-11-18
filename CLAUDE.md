@@ -89,6 +89,9 @@ Questo software fa parte del progetto BluCode Informatica. La memoria condivisa 
       (meno punti scaldati insieme e più pausa, tempo di riscaldamento di fabbrica 80 per non sbavare; `escCalore` in pdf.js). Per il PDF da Windows
       la velocità si regola nel driver. Nell'ESC/POS niente grassetto (ESC E sbava sulla MTP-3) ed etichette accorciate per stare in una riga
       accanto a SI/NO (`CORTE`, `SIG_CORTI` in `escposRapporto`).
+      Stampa che non resta mai appesa: ogni scrittura (BT o COM) ha un limite di 8 s (`STAMPA_TIMEOUT`), il collegamento Bluetooth di 15 s,
+      e mentre stampa c'è «Annulla» (`stampaAnnulla`, oggetto `Stampa` in common.js; azione `stampa-annulla` in app.js, `data-ft="annulla"` in /foto).
+      Dopo un annullo o un blocco il Bluetooth si scollega e la stampa successiva ricollega da capo; la porta COM si libera sempre.
 - [x] Importa QR da file (2026-11-18): Apparecchi > «Importa QR da file» (`public/js/importa-qr.js`, caricato da `app.js` solo al clic con
       `caricaImportaQr`, `?v=` da cambiare a ogni modifica del file; pannello `qrimp`, eventi propri `data-qi-act` / `data-qi-sel`).
       Il browser legge foto, PDF (pdf.js 4.10.38 legacy in `public/vendor/pdfjs`, import dinamico) e ZIP (lettore interno con
