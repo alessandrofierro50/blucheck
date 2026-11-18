@@ -91,7 +91,7 @@ const BT_SERVIZI = [
 ];
 const BT_PREF = "blucheck_termica";
 // velocita: normale | lenta | molto (lenta = blocchi piccoli con pause e testina che scalda di più: stampa più scura e regolare)
-const btPref = () => { const p = { carta: 80, ...(ls.get(BT_PREF) || {}) }; if (!p.velocita) p.velocita = p.lenta ? "lenta" : "normale"; return p; };
+const btPref = () => { const p = { carta: 80, ...(ls.get(BT_PREF) || {}) }; if (!p.velocita) p.velocita = "lenta"; return p; };
 const RITMO = { normale: { bt: 100, btr: 180, pausa: 12, ser: 256, serPausa: 0 }, lenta: { bt: 50, btr: 50, pausa: 30, ser: 64, serPausa: 30 }, molto: { bt: 20, btr: 20, pausa: 50, ser: 32, serPausa: 60 } };
 const ritmo = () => RITMO[btPref().velocita] || RITMO.normale;
 const btDisponibile = () => !!(navigator.bluetooth && window.isSecureContext);

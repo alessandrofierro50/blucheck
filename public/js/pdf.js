@@ -270,9 +270,10 @@ function pdfThermal(v, firmaU, firmaT, timbro, coda) {
    Bluetooth) e firme/timbro come immagini raster. carta: 80 mm = 48 colonne e 576 punti, 58 mm = 32 colonne e 384 punti. */
 const ESC_CARTA = { 80: { cols: 48, dots: 576 }, 58: { cols: 32, dots: 384 } };
 // velocità della testina (ESC 7 n1 n2 n3: punti scaldati insieme, tempo e pausa di riscaldamento, comando delle stampantine
-// cinesi tipo MTP/Xprinter; chi non lo conosce lo ignora): più lenta = stampa più scura e uniforme. «normale» non manda niente.
+// cinesi tipo MTP/Xprinter; chi non lo conosce lo ignora): meno punti scaldati insieme e più pausa = testina più lenta e
+// righe uniformi, con lo stesso tempo di riscaldamento (80 = valore di fabbrica) per non sbavare. «normale» non manda niente.
 function escCalore(vel = (typeof btPref === "function" ? btPref().velocita : "normale")) {
-  return vel === "molto" ? [0x1b, 0x37, 5, 200, 8] : vel === "lenta" ? [0x1b, 0x37, 7, 140, 4] : [];
+  return vel === "molto" ? [0x1b, 0x37, 1, 80, 10] : vel === "lenta" ? [0x1b, 0x37, 3, 80, 6] : [];
 }
 // le stampantine non hanno una tabella caratteri comune: si stampa solo ASCII (à -> a', € -> EUR)
 const escAscii = (s) => clean(s).replace(/[àáÀÁèéÈÉìíÌÍòóÒÓùúÙÚ]/g, (c) => c.normalize("NFD")[0] + "'").replace(/Euro +/g, "EUR ")
@@ -318,7 +319,8 @@ async function escposRapporto(v, firmaU, firmaT, timbro, carta = 80, taglia = tr
   const B = !!v.bianco; // modulo in bianco da compilare a mano
   const parts = []; const raw = (...b) => parts.push(Uint8Array.from(b.flat()));
   const enc = (s) => Uint8Array.from([...s].map((c) => c.charCodeAt(0) & 0x7f));
-  const align = (n) => raw(0x1b, 0x61, n), bold = (on) => raw(0x1b, 0x45, on ? 1 : 0), size = (n) => raw(0x1d, 0x21, n);
+  // niente grassetto (ESC E): sulle termiche economiche come la MTP-3 sbava; i titoli restano in maiuscolo
+  const align = (n) => raw(0x1b, 0x61, n), bold = () => { }, size = (n) => raw(0x1d, 0x21, n);
   const line = (s) => { parts.push(enc(s)); raw(0x0a); };
   const t = (s, { b = false, c = false, big = false } = {}) => { if (!s) return; align(c ? 1 : 0); bold(b); if (big) size(0x11); escWrap(s, big ? Math.floor(cols / 2) : cols).forEach(line); if (big) size(0); bold(false); };
   const lr = (a, b) => { align(0); const bb = escAscii(b); const la = escWrap(a, cols - bb.length - 1); la.forEach((x, i) => line(i === la.length - 1 ? x + " ".repeat(Math.max(1, cols - x.length - bb.length)) + bb : x)); };
@@ -342,13 +344,15 @@ async function escposRapporto(v, firmaU, firmaT, timbro, carta = 80, taglia = tr
   t("APPARECCHIO", { b: true }); t(v.app?.modello || ""); t(`Matricola ${v.app?.matricola || ""}`, { b: true });
   t("Intervento: " + INTERVENTI.filter(([k]) => v.interventi?.[k]).map(([, l]) => l).join(", ")); sep();
   }
+  // sulla termica le voci devono stare in una riga accanto a SI/NO: qualche etichetta più corta
+  const CORTE = { e6: "Coerenza totali/corrispettivo" }, SIG_CORTI = { ...SIGILLI, "2": "Targhetta adesiva (Provv. 6/5/2010)" };
   const val = (k) => B ? "[ ]SI [ ]NO" : v.esiti?.[k] === "si" ? "SI" : v.esiti?.[k] === "no" ? "NO" : "-";
   t("1.0 ESAME PRELIMINARE", { b: true });
   PRE.forEach((p) => lr(`${p.c || "   "} ${TX[p.k][1]}`, val(p.k)));
-  if (B) { t("Tipo sigillo:"); Object.entries(SIGILLI).forEach(([k, l]) => t(`[ ] ${k}. ${l}`)); }
-  else if (v.tipoSigillo) t(`Tipo sigillo: ${v.tipoSigillo}. ${SIGILLI[v.tipoSigillo]}`);
+  if (B) { t("Tipo sigillo:"); Object.entries(SIG_CORTI).forEach(([k, l]) => t(`[ ] ${k}. ${l}`)); }
+  else if (v.tipoSigillo) t(`Tipo sigillo: ${v.tipoSigillo}. ${SIG_CORTI[v.tipoSigillo]}`);
   t(v.tipo === "privo" ? "2.0 RT PRIVO DI SIGILLO" : "2.0 RT CON SIGILLO INTEGRO", { b: true });
-  for (const x of buildTests(v.tipo)) { if (x.head) t(`${x.c} ${x.s}`, { b: true }); else lr(`${x.c} ${x.s}`, val(x.k)); }
+  for (const x of buildTests(v.tipo)) { if (x.head) t(`${x.c} ${x.s}`, { b: true }); else lr(`${x.c} ${CORTE[x.k] || x.s}`, val(x.k)); }
   sep();
   if (B) {
     campo("Firmware presente"); campo("Aggiornato a"); raw(0x0a); line("Inizio  ___/___/______  ___:___"); raw(0x0a); line("Fine    ___/___/______  ___:___");

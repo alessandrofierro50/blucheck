@@ -28,6 +28,7 @@ await page.evaluate(() => {
 for (const f of ["node_modules/jspdf/dist/jspdf.umd.min.js", "public/js/common.js", "public/js/pdf.js"]) await page.addScriptTag({ path: path.join(root, f) });
 
 const r = await page.evaluate(async () => {
+  localStorage.setItem("blucheck_termica", JSON.stringify({ carta: 80, velocita: "normale" }));
   const cli = { ragione: "Bar Centrale di Rossi Mario & C. S.a.s. – Caffetteria Pasticceria", domicilio: "Via Roma 12, 73036 Muro Leccese (LE)", piva: "01234567890", cf: "RSSMRA80A01F842X" };
   const tb = timbroCliente(cli), tb2 = timbroCliente(cli);
   const firma = (() => { const c = document.createElement("canvas"); c.width = 400; c.height = 120; const x = c.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, 400, 120); x.lineWidth = 4; x.beginPath(); x.moveTo(20, 90); x.bezierCurveTo(120, 0, 200, 120, 380, 30); x.stroke(); return c.toDataURL("image/png"); })();
@@ -68,7 +69,8 @@ const r = await page.evaluate(async () => {
       window.__pezzi = []; window.__ricevuti = []; window.__seriale.pezzi = [];
       await btStampa(bl); await serStampa(bl, true);
       const out = { pezziN, serN, init: [...bl.slice(0, 10)], pezzi: Math.max(...window.__pezzi), ser: Math.max(...window.__seriale.pezzi),
-        tutto: window.__ricevuti.length === bl.length, righe: testo(bl).length === righe.length, vecchia: (localStorage.setItem("blucheck_termica", JSON.stringify({ lenta: true })), btPref().velocita) };
+        tutto: window.__ricevuti.length === bl.length, righe: testo(bl).length === righe.length, vecchia: (localStorage.setItem("blucheck_termica", JSON.stringify({ lenta: true })), btPref().velocita),
+        predefinita: (localStorage.removeItem("blucheck_termica"), btPref().velocita), grassetto: [...bl].some((x, i) => x === 0x1b && bl[i + 1] === 0x45) };
       localStorage.removeItem("blucheck_termica"); return out;
     })(),
     bianca: await (async () => {
@@ -99,9 +101,12 @@ ok(r.esitoRiga, "esito stampato");
 ok(r.ricevuti, "Bluetooth simulato: la stampante ha ricevuto tutti i byte, in ordine");
 ok(r.servizi >= 5, "richiesta Bluetooth con i servizi delle stampanti note");
 ok(r.serOk, "porta USB/COM simulata (Web Serial): tutti i byte, 9600 baud, porta chiusa alla fine, Bluetooth SPP ammesso");
-ok(r.lenta.init.slice(0, 10).join() === "27,64,27,116,0,27,55,7,140,4" && !r.escInit.includes(55), "velocità lenta: ESC 7 (riscaldamento più lungo) dopo l'avvio, assente in normale");
+ok(r.lenta.init.slice(0, 10).join() === "27,64,27,116,0,27,55,3,80,6" && !r.escInit.includes(55), "velocità lenta: ESC 7 (riscaldamento più lungo) dopo l'avvio, assente in normale");
 ok(r.lenta.pezzi <= 50 && r.lenta.ser <= 64 && r.lenta.pezziN > 50 && r.lenta.serN > 64 && r.lenta.tutto, `velocità lenta: pezzi più piccoli (BT ${r.lenta.pezziN}→${r.lenta.pezzi}, COM ${r.lenta.serN}→${r.lenta.ser}), tutti i byte`);
 ok(r.lenta.righe, "velocità lenta: stesso testo stampato");
+ok(r.lenta.predefinita === "lenta", "velocità predefinita: Lenta");
+ok(!r.lenta.grassetto, "niente grassetto (ESC E), che sulla termica sbava");
+ok(r.bianca.righe.some((x) => x.includes("Coerenza totali/corrispettivo") && x.endsWith("[ ]SI [ ]NO")) && r.bianca.righe.some((x) => x.endsWith("Targhetta adesiva (Provv. 6/5/2010)")), "scheda in bianco 80 mm: etichette lunghe su una riga");
 ok(r.lenta.vecchia === "lenta", "vecchia preferenza «lenta» letta come Lenta");
 ok(r.rawbt === "intent:base64,G0BB#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;", "link RawBT");
 ok(r.bianca.max80 <= 48 && r.bianca.max58 <= 32, `scheda in bianco entro 48/32 colonne: ${r.bianca.max80} / ${r.bianca.max58}`);
