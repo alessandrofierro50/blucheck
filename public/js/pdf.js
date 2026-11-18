@@ -208,22 +208,24 @@ function pdfDich(v, firmaU, firmaT, timbro) {
 
 function pdfThermal(v, firmaU, firmaT, timbro, coda) {
   const { jsPDF } = window.jspdf; const L = labFor(v);
-  const B = !!v.bianco, u = (x, n = 22) => (B ? "_".repeat(n) : x), box = "[  ] SI   [  ] NO"; // B = modulo in bianco da compilare a mano
+  const B = !!v.bianco, u = (x, n = 22) => (B ? "_".repeat(n) : x), box = "[  ] SI  [  ] NO"; // B = modulo in bianco da compilare a mano
   const run = (d) => {
     const X = 4, W = 72; let y = 5;
-    const t = (s, fs = 8, st = "normal", align = "left") => { d.setFont("helvetica", st); d.setFontSize(fs); const lines = d.splitTextToSize(clean(s), W); d.text(lines, align === "center" ? X + W / 2 : X, y + LH(fs) * 0.8, { align }); y += lines.length * LH(fs) + 0.6; };
-    const lr = (a, b, fs = 7.5, st = "bold") => { d.setFont("helvetica", "normal"); d.setFontSize(fs); const la = d.splitTextToSize(clean(a), W - 14); d.text(la, X, y + LH(fs) * 0.8); d.setFont("helvetica", st); d.text(clean(b), X + W, y + LH(fs) * 0.8, { align: "right" }); y += la.length * LH(fs) + 0.7; };
-    const sep = () => { d.setLineDashPattern([0.8, 0.8], 0); d.setLineWidth(0.2); d.line(X, y + 1, X + W, y + 1); d.setLineDashPattern([], 0); y += 2.6; };
+    // caratteri ingranditi del 25% (K) rispetto alla prima versione: sulla termica 203 dpi il testo piccolo esce sottile e sbiadito
+    const K = 1.25, setFs = d.setFontSize.bind(d); d.setFontSize = (n) => setFs(n * K);
+    const t = (s, fs = 8, st = "normal", align = "left") => { d.setFont("helvetica", st); d.setFontSize(fs); const lines = d.splitTextToSize(clean(s), W); d.text(lines, align === "center" ? X + W / 2 : X, y + LH(fs * K) * 0.8, { align }); y += lines.length * LH(fs * K) + 0.7; };
+    const lr = (a, b, fs = 7.5, st = "bold") => { d.setFont("helvetica", st); d.setFontSize(fs); const bw = d.getTextWidth(clean(b)); d.setFont("helvetica", "normal"); const la = d.splitTextToSize(clean(a), Math.max(20, W - bw - 2)); d.text(la, X, y + LH(fs * K) * 0.8); d.setFont("helvetica", st); d.text(clean(b), X + W, y + LH(fs * K) * 0.8, { align: "right" }); y += la.length * LH(fs * K) + 0.9; };
+    const sep = () => { d.setLineDashPattern([1, 0.8], 0); d.setLineWidth(0.3); d.line(X, y + 1, X + W, y + 1); d.setLineDashPattern([], 0); y += 2.6; };
     t(L.ragione, 10, "bold", "center"); t(`${L.indirizzo || ""} ${L.cap || ""}`, 7.5, "normal", "center"); if (L.piva) t(`P.I. ${L.piva}`, 7.5, "normal", "center"); sep();
     t("RAPPORTO DI VERIFICAZIONE PERIODICA RT", 8.5, "bold", "center"); t(v.tipo === "privo" ? "PRIVO DI SIGILLO FISCALE" : "CON SIGILLO FISCALE INTEGRO", 8, "bold", "center");
     t("(Provv. A.E. 28/07/2003 e 28/10/2016)", 6.5, "normal", "center"); t(`N. ${u(v.numero || "", 14)}`, 8, "bold", "center"); sep();
     if (B) {
       // etichetta e riga da compilare fino al bordo destro
-      const riga = (l) => { y += 3; d.setFont("helvetica", "normal"); d.setFontSize(7.5); if (l) d.text(l, X, y); const x0 = l ? X + d.getTextWidth(l) + 1.5 : X; d.setLineWidth(0.2); d.line(x0, y + 0.6, X + W, y + 0.6); y += 2.2; };
+      const riga = (l) => { y += 3.6; d.setFont("helvetica", "normal"); d.setFontSize(7.5); if (l) d.text(l, X, y); const x0 = l ? X + d.getTextWidth(l) + 1.5 : X; d.setLineWidth(0.3); d.line(x0, y + 0.6, X + W, y + 0.6); y += 2.6; };
       t("ESERCENTE", 7, "bold"); riga("Ragione sociale"); riga("Domicilio"); riga("P.IVA"); y += 1;
       t("UBICAZIONE", 7, "bold"); riga(""); y += 1;
       t("APPARECCHIO", 7, "bold"); riga("Marchio/Modello"); riga("Matricola"); y += 1;
-      t("Intervento: " + INTERVENTI.map(([, l]) => "[  ] " + l).join("  "), 7.5); sep();
+      t("Intervento:", 7, "bold"); for (let i = 0; i < INTERVENTI.length; i += 3) t(INTERVENTI.slice(i, i + 3).map(([, l]) => "[  ] " + l).join("    "), 7.5); sep();
     } else {
     t("ESERCENTE", 7, "bold"); t(v.cli?.ragione || "", 8, "bold"); if (v.cli?.domicilio) t(v.cli.domicilio, 7.5); t(`P.IVA ${v.cli?.piva || ""}`, 7.5);
     t("UBICAZIONE", 7, "bold"); t([v.app?.indirizzo, v.app?.localita].filter(Boolean).join(" - ") || "-", 7.5);
@@ -233,7 +235,7 @@ function pdfThermal(v, firmaU, firmaT, timbro, coda) {
     const val = (k) => B ? box : v.esiti?.[k] === "si" ? "SI" : v.esiti?.[k] === "no" ? "NO" : "-";
     t("1.0 ESAME PRELIMINARE", 7.5, "bold");
     PRE.forEach((p) => lr(`${p.c || "   "} ${TX[p.k][1]}`, val(p.k)));
-    if (B) t("Tipo sigillo: " + Object.entries(SIGILLI).map(([k, l]) => `[  ] ${k}. ${l}`).join("   "), 7);
+    if (B) { t("Tipo sigillo:", 7, "bold"); Object.entries(SIGILLI).forEach(([k, l]) => t(`[  ] ${k}. ${l}`, 7)); }
     else if (v.tipoSigillo) t(`Tipo sigillo: ${v.tipoSigillo}. ${SIGILLI[v.tipoSigillo]}`, 7);
     t(v.tipo === "privo" ? "2.0 RT PRIVO DI SIGILLO" : "2.0 RT CON SIGILLO INTEGRO", 7.5, "bold");
     for (const x of buildTests(v.tipo)) { if (x.head) t(`${x.c} ${x.s}`, 7, "bold"); else lr(`${x.c} ${x.s}`, val(x.k)); }
@@ -243,7 +245,7 @@ function pdfThermal(v, firmaU, firmaT, timbro, coda) {
     if (B) y += 1; lr("Inizio", B ? "___/___/______  ___:___" : `${fmtD(v.data)} ${v.oraInizio || ""}`, 7.5);
     if (B) y += 1; lr("Fine", B ? "___/___/______  ___:___" : `${fmtD(v.dataFine || v.data)} ${v.oraFine || ""}`, 7.5);
     lr("P.I. Laboratorio", L.piva || u(""), 7.5); if (B) y += 1; lr("C.F. Tecnico", L.cfTecnico || u(""), 7.5); sep();
-    if (B) { t("ESITO:   [  ] POSITIVO     [  ] NEGATIVO", 9.5, "bold", "center"); y += 1.5; t("Prossima verificazione entro il ___/___/______", 7.5, "normal", "center"); }
+    if (B) { t("ESITO:  [  ] POSITIVO   [  ] NEGATIVO", 8.5, "bold", "center"); y += 1.5; t("Prossima verificazione entro il ___/___/______", 7.5, "normal", "center"); }
     else {
     t(v.esito === "positivo" ? "ESITO POSITIVO" : v.esito === "negativo" ? "ESITO NEGATIVO" : "ESITO NON DETERMINATO", 12, "bold", "center");
     if (v.esito === "positivo") t(`Prossima verificazione entro il ${fmtD(addYears(v.data, 2))}`, 8, "bold", "center");
@@ -394,7 +396,7 @@ async function escposSchedaBianca(carta = 80, tipo = "integro", L = {}) {
 function pdfSchedaBianca(tipo = "integro", L = {}) {
   return pdfThermal(vBianco(tipo, L), "", "", null, (d, X, W, y) => {
     y += 4; d.setLineDashPattern([0.8, 0.8], 0); d.line(X, y, X + W, y); d.setLineDashPattern([], 0); y += 3;
-    d.setFont("helvetica", "normal"); d.setFontSize(6.5); d.text(`Controllo stampa: righello ${W} mm e barra a tutta larghezza`, X, y + 2); y += 4;
+    d.setFont("helvetica", "normal"); d.setFontSize(6.5); d.text(`Controllo: righello ${W} mm e barra intera`, X, y + 2); y += 4;
     d.setLineWidth(0.2); d.line(X, y + 4, X + W, y + 4);
     for (let mm = 0; mm <= W; mm++) { const h = mm % 10 === 0 ? 4 : mm % 5 === 0 ? 2.5 : 1.3; d.line(X + mm, y + 4 - h, X + mm, y + 4); if (mm % 10 === 0) { d.setFontSize(5.5); d.text(String(mm), Math.min(X + mm, X + W - 1.5), y + 6.6, { align: "center" }); } }
     y += 8; d.setFillColor(0); d.rect(X, y, W, 3, "F"); return y + 3;

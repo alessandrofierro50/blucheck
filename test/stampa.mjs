@@ -20,6 +20,9 @@ await page.evaluate(() => {
   window.__ricevuti = [];
   const ch = { properties: { writeWithoutResponse: true, write: true }, async writeValueWithoutResponse(p) { window.__ricevuti.push(...p); } };
   const dev = { name: "Termica prova", gatt: { connected: false, async connect() { this.connected = true; return { getPrimaryServices: async () => [{ getCharacteristics: async () => [{ properties: { read: true } }, ch] }] }; }, disconnect() { this.connected = false; } } };
+  window.__seriale = { scritti: [], aperta: 0, chiusa: 0 };
+  const porta = { writable: null, async open(o) { window.__seriale.aperta++; window.__seriale.baud = o.baudRate; this.writable = { getWriter: () => ({ write: async (b) => { window.__seriale.scritti.push(...b); }, releaseLock() { } }) }; }, async close() { window.__seriale.chiusa++; this.writable = null; } };
+  Object.defineProperty(navigator, "serial", { value: { getPorts: async () => [], requestPort: async (o) => { window.__seriale.opzioni = o; return porta; } }, configurable: true });
   Object.defineProperty(navigator, "bluetooth", { value: { requestDevice: async (o) => { window.__opzioni = o; return dev; } }, configurable: true });
 });
 for (const f of ["node_modules/jspdf/dist/jspdf.umd.min.js", "public/js/common.js", "public/js/pdf.js"]) await page.addScriptTag({ path: path.join(root, f) });
@@ -45,6 +48,8 @@ const r = await page.evaluate(async () => {
   const righe = testo(bytes), righe58 = testo(b58);
   const raster = (b) => { let n = 0; for (let i = 0; i < b.length - 1; i++) if (b[i] === 0x1d && b[i + 1] === 0x76 && b[i + 2] === 0x30) n++; return n; };
   await btStampa(bytes);
+  await serStampa(bytes, true);
+  const ser = window.__seriale, serOk = ser.scritti.length === bytes.length && ser.scritti.every((x, i) => x === bytes[i]) && ser.aperta === 1 && ser.chiusa === 1 && ser.baud === 9600 && ser.opzioni.allowedBluetoothServiceClassIds[0].startsWith("00001101");
   return {
     tb: !!tb && tb.url.startsWith("data:image/png") && tb.w > tb.h, uguale: tb.url === tb2.url, senza: timbroCliente({ ragione: "  " }) === null,
     linee: timbroLinee(cli), lineeSenzaCf: timbroLinee({ ragione: "Ditta", piva: "123", cf: "123" }),
@@ -55,7 +60,7 @@ const r = await page.evaluate(async () => {
     righe, esitoRiga: righe.some((x) => x.includes("ESITO POSITIVO")), accenti: escAscii("Città è perché € 5"),
     ricevuti: window.__ricevuti.length === bytes.length && window.__ricevuti.every((x, i) => x === bytes[i]), servizi: window.__opzioni?.optionalServices?.length,
     rawbt: rawbtUrl(new Uint8Array([27, 64, 65])), b64esc: btoa(String.fromCharCode(...bytes.slice(0, 0))) === "",
-    bytes: Array.from(bytes),
+    bytes: Array.from(bytes), serOk,
     bianca: await (async () => {
       const L = { ragione: "CDL Italia srl", piva: "09876543210" };
       const b80 = await escposSchedaBianca(80, "integro", L), b58 = await escposSchedaBianca(58, "privo", L);
@@ -83,6 +88,7 @@ ok(r.accenti === "Citta' e' perche' EUR 5", "accenti e euro: " + r.accenti);
 ok(r.esitoRiga, "esito stampato");
 ok(r.ricevuti, "Bluetooth simulato: la stampante ha ricevuto tutti i byte, in ordine");
 ok(r.servizi >= 5, "richiesta Bluetooth con i servizi delle stampanti note");
+ok(r.serOk, "porta USB/COM simulata (Web Serial): tutti i byte, 9600 baud, porta chiusa alla fine, Bluetooth SPP ammesso");
 ok(r.rawbt === "intent:base64,G0BB#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;", "link RawBT");
 ok(r.bianca.max80 <= 48 && r.bianca.max58 <= 32, `scheda in bianco entro 48/32 colonne: ${r.bianca.max80} / ${r.bianca.max58}`);
 ok(r.bianca.caselle === r.bianca.test80, `scheda in bianco: caselle SI/NO su ogni prova (${r.bianca.caselle} di ${r.bianca.test80})`);
