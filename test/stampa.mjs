@@ -48,7 +48,7 @@ const r = await page.evaluate(async () => {
       if (c === 0x0a) { out.push(cur); cur = ""; } else cur += String.fromCharCode(c); i++; } return out; };
   const righe = testo(bytes), righe58 = testo(b58);
   const raster = (b) => { let n = 0; for (let i = 0; i < b.length - 1; i++) if (b[i] === 0x1d && b[i + 1] === 0x76 && b[i + 2] === 0x30) n++; return n; };
-  await btStampa(bytes);
+  { const t = performance.now(); await btStampa(bytes); window.__msNormale = performance.now() - t; }
   await serStampa(bytes, true);
   const ser = window.__seriale, serOk = ser.scritti.length === bytes.length && ser.scritti.every((x, i) => x === bytes[i]) && ser.aperta === 1 && ser.chiusa === 1 && ser.baud === 9600 && ser.opzioni.allowedBluetoothServiceClassIds[0].startsWith("00001101");
   return {
@@ -67,9 +67,10 @@ const r = await page.evaluate(async () => {
       localStorage.setItem("blucheck_termica", JSON.stringify({ carta: 80, velocita: "lenta" }));
       const bl = await escposRapporto(v, firma, firma, tb, 80);
       window.__pezzi = []; window.__ricevuti = []; window.__seriale.pezzi = [];
-      await btStampa(bl); await serStampa(bl, true);
+      const t0 = performance.now(); await btStampa(bl); const msBt = performance.now() - t0; await serStampa(bl, true);
+      const mm = puntiCarta(bl).reduce((a, x) => a + x, 0) / 8;
       const out = { pezziN, serN, init: [...bl.slice(0, 10)], pezzi: Math.max(...window.__pezzi), ser: Math.max(...window.__seriale.pezzi),
-        tutto: window.__ricevuti.length === bl.length, righe: testo(bl).length === righe.length, vecchia: (localStorage.setItem("blucheck_termica", JSON.stringify({ lenta: true })), btPref().velocita),
+        tutto: window.__ricevuti.length === bl.length, mm, msBt, msN: window.__msNormale, righe: testo(bl).length === righe.length, vecchia: (localStorage.setItem("blucheck_termica", JSON.stringify({ lenta: true })), btPref().velocita),
         predefinita: (localStorage.removeItem("blucheck_termica"), btPref().velocita), grassetto: [...bl].some((x, i) => x === 0x1b && bl[i + 1] === 0x45) };
       localStorage.removeItem("blucheck_termica"); return out;
     })(),
@@ -103,6 +104,7 @@ ok(r.servizi >= 5, "richiesta Bluetooth con i servizi delle stampanti note");
 ok(r.serOk, "porta USB/COM simulata (Web Serial): tutti i byte, 9600 baud, porta chiusa alla fine, Bluetooth SPP ammesso");
 ok(r.lenta.init.slice(0, 10).join() === "27,64,27,116,0,27,55,3,80,6" && !r.escInit.includes(55), "velocità lenta: ESC 7 (riscaldamento più lungo) dopo l'avvio, assente in normale");
 ok(r.lenta.pezzi <= 50 && r.lenta.ser <= 64 && r.lenta.pezziN > 50 && r.lenta.serN > 64 && r.lenta.tutto, `velocità lenta: pezzi più piccoli (BT ${r.lenta.pezziN}→${r.lenta.pezzi}, COM ${r.lenta.serN}→${r.lenta.ser}), tutti i byte`);
+ok(r.lenta.mm > 200 && r.lenta.msBt >= r.lenta.mm / 35 * 1000 * 0.95 && r.lenta.msBt > 3 * r.lenta.msN, `velocità lenta davvero più lenta: ${Math.round(r.lenta.mm)} mm in ${(r.lenta.msBt / 1000).toFixed(1)} s (normale ${(r.lenta.msN / 1000).toFixed(1)} s, max 35 mm/s)`);
 ok(r.lenta.righe, "velocità lenta: stesso testo stampato");
 ok(r.lenta.predefinita === "lenta", "velocità predefinita: Lenta");
 ok(!r.lenta.grassetto, "niente grassetto (ESC E), che sulla termica sbava");
