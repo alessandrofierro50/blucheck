@@ -47,3 +47,12 @@ Su un database **nuovo**, con lo stesso server e le stesse variabili sopra:
 rm -f /tmp/bc-test.db*; node -r ./test/mock-gestori.js server.js &
 node test/importa-qr.mjs
 ```
+
+## Foto sulla termica
+`test/foto.mjs` prova nel browser (Playwright, non serve il server) la pagina `/foto`: larghezza piena 576/384 punti, rotazione, limite di
+lunghezza, bianco e nero col dithering (grigio medio = metà punti neri), gamma, soglia e negativo, comandi ESC/POS raster (strisce da 128
+righe, 72/48 byte per riga, bit uguali all'anteprima, taglio) e invio a Bluetooth e porta COM simulati.
+
+```bash
+node test/foto.mjs                   # OUT=/cartella salva anche l'anteprima PNG, i comandi ESC/POS e le schermate telefono/computer
+```

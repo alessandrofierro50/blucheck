@@ -100,3 +100,13 @@ Questo software fa parte del progetto BluCode Informatica. La memoria condivisa 
       dell'Agenzia, uno solo per esercente), `presente`/`invariato` (stessa matricola: modello, firmware, QR, dati AdE e ultima verifica se più
       recente e positiva; il cliente non si cambia, si avvisa se l'Agenzia indica un altro esercente), `doppio`, `errore`. Cliente trovato per nome
       senza P.IVA: gliela si aggiunge. Alla conferma backup `data/backup/blucheck-prima-import-qr-*.db` e una transazione. Prova: `test/importa-qr.mjs`.
+- [x] Foto sulla termica (2026-11-18): pagina **`/foto`** (`public/foto.html` + `public/js/foto-termica.js`, manifest proprio `foto.webmanifest`
+      per aggiungerla alla Home del telefono o installarla dal PC; senza accesso perché tutto avviene nel browser e la foto non va al server;
+      link da Impostazioni > «Stampa foto sulla termica»). Foto da fotocamera, galleria, trascinamento o incolla; orientamento EXIF, «Ruota 90°».
+      `fotoElabora`: larghezza sempre piena (`FOTO_DOTS` 80 mm = 576 punti = 72 mm a 203 dpi, 58 mm = 384; stessa preferenza carta
+      `blucheck_termica` dei rapporti), altezza in proporzione (max 4800 righe), riduzione a passi; `fotoGrigi`: luminanza, livelli automatici
+      (0,5% agli estremi), nitidezza (maschera 3x3), luminosità, contrasto, gamma (default 1,3: schiarisce i mezzitoni che sulla termica escono scuri),
+      negativo; `fotoDither`: Floyd-Steinberg a serpentina (default), Atkinson o soglia (testi/loghi). Regolazioni ricordate in localStorage
+      `blucheck_foto`. `escposFoto`: ESC @, centrato, GS v 0 a strisce di 128 righe da 72 byte, avanza e taglia. Invio con `btStampa`/`serStampa`/
+      `rawbtUrl` di common.js (con la stessa «Velocità stampa» `velocita` dei rapporti), «Stampa col driver» (pagina di stampa 80 mm, immagine larga 72 mm) e «Condividi/Scarica immagine» (PNG 1 bit).
+      Anteprima rimpicciolita con filtro (niente moiré), tocco = punti veri 1:1. Prova: `test/foto.mjs`.

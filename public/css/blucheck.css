@@ -215,3 +215,27 @@ table.t td.num,table.t th.num{text-align:right;font-variant-numeric:tabular-nums
 .stat.pl-stat{cursor:default}
 .timbro-prev{display:flex;justify-content:center;background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:8px}
 .timbro-prev img{max-width:min(100%,320px);height:auto}
+
+/* ============================== stampa foto sulla termica (/foto) ============================== */
+.ft-main{max-width:760px;margin:0 auto;padding-block:16px 40px;display:flex;flex-direction:column;gap:14px}
+.ft-drop{border:2px dashed var(--line);border-radius:var(--r);background:var(--surface-2);padding:22px 14px;display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center;cursor:pointer;color:var(--ink-2);overflow-wrap:anywhere}
+.ft-drop b{color:var(--ink)}
+.ft-drop.on,.ft-drop:hover{border-color:var(--accent);background:var(--accent-soft)}
+.ft-range input{width:100%;accent-color:var(--accent);min-height:32px}
+.ft-range span b{font-family:var(--f-mono);font-weight:500;color:var(--ink)}
+.ft-prev{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r);padding:14px;display:flex;justify-content:center;max-height:70vh;overflow:auto}
+.ft-carta{width:100%;max-width:400px;background:#fff;padding:10px 4%;box-shadow:0 1px 4px rgba(0,0,0,.18)}
+.ft-carta canvas{display:block;width:var(--ft-w,100%);margin:0 auto;height:auto;cursor:zoom-in}
+.ft-prev:has(canvas.zoom){justify-content:flex-start}
+.ft-carta:has(canvas.zoom){max-width:none;width:auto}
+.ft-carta canvas.zoom{width:auto;max-width:none;image-rendering:pixelated;cursor:zoom-out}
+.ft-print{display:none}
+@media print{
+  @page{size:80mm auto;margin:0}
+  body.ft-page>*:not(.ft-print){display:none!important}
+  body.ft-page{background:#fff;padding:0}
+  body.ft-page::before{display:none}
+  .ft-print{display:block}
+  .ft-print img{display:block;width:72mm;margin:0 auto}
+  .ft-print.c58 img{width:48mm}
+}

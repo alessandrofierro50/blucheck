@@ -1528,6 +1528,7 @@ app.use("/vendor/jspdf", express.static(path.join(__dirname, "node_modules/jspdf
 app.use("/vendor/jsqr", express.static(path.join(__dirname, "node_modules/jsqr/dist"), { maxAge: "30d" }));
 app.get("/app", (req, res) => res.sendFile(path.join(__dirname, "public", "app.html")));
 app.get("/admin", (req, res) => res.sendFile(path.join(__dirname, "public", "admin.html")));
+app.get("/foto", (req, res) => { res.setHeader("Cache-Control", "no-cache"); res.sendFile(path.join(__dirname, "public", "foto.html")); });
 // le pagine HTML non vanno in cache (così dopo un aggiornamento caricano subito i nuovi ?v= di js e css), il resto 1 ora
 app.use(express.static(path.join(__dirname, "public"), { maxAge: PROD ? "1h" : 0, extensions: ["html"],
   setHeaders: (res, file) => { if (file.endsWith(".html")) res.setHeader("Cache-Control", "no-cache"); } }));
