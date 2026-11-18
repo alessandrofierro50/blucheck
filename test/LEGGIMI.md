@@ -1,5 +1,7 @@
 # Prove automatiche
 
+Tutte insieme, come la CI di GitHub: `bash test/tutte.sh` (ogni prova del server su un database nuovo; per stampa e foto serve Playwright).
+
 Prova end-to-end delle API con Stripe e PayPal simulati (`mock-gestori.js` sostituisce `fetch`: non usarlo in produzione).
 
 ```bash

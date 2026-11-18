@@ -101,10 +101,12 @@ Copia periodicamente la cartella `data/backup` fuori dal VPS.
 
 ## Aggiornare
 
+Di solito non serve fare nulla: a ogni modifica unita su `main`, con le prove (CI) verdi, GitHub aggiorna da solo la VPS
+(«Aggiorna server», vedi `deploy/AGGIORNAMENTO-AUTOMATICO.md`). Si può lanciare anche a mano da GitHub → Actions → «Aggiorna server»,
+dal connettore vocale («aggiorna BluCheck») o sulla VPS:
+
 ```bash
-cd /opt/blucheck && cp -r data /root/blucheck-data-$(date +%F)
-# sostituisci i file (non toccare .env e data/)
-npm ci --omit=dev && pm2 restart blucheck
+cd /opt/blucheck && bash deploy/update.sh   # backup del database, git pull, npm ci se servono, pm2 restart, controllo
 ```
 
 ## Struttura

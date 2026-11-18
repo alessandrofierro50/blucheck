@@ -1,0 +1,23 @@
+# Controlli automatici: sintassi, prove delle API con Stripe/PayPal simulati e prove nel browser (stampa, foto).
+# «Aggiorna server» parte solo se questa CI è verde su main.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Playwright serve solo alle prove nel browser: non è una dipendenza di BluCheck
+      - run: npm i --no-save playwright@1.49.1 && npx playwright install --with-deps chromium
+      - run: bash test/tutte.sh
