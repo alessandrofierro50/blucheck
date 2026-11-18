@@ -77,7 +77,10 @@ Questo software fa parte del progetto BluCode Informatica. La memoria condivisa 
       `collegaRtAbbonamento`/`rtDaCollegare` (server) collegano da soli i registratori non decisi solo se i canoni bastano per tutti, dopo l'import
       degli abbonamenti e dopo l'import dei QR (avviso nel riepilogo QR: «si collega» o «scegli nella scheda»). Scheda «Aggiornamenti» del cliente:
       pannello «Registratori e abbonamento» (`panelRtAbb`, «Con software (abbonamento)» / «Solo cassa» + software per registratore); riquadro/filtro
-      «Registratori da abbinare all'abbonamento» (`rt_abb`: non decisi o più registratori col software dei canoni). Stato di ogni matricola in elenco e TXT/PDF. Prova: `test/abbonamenti.mjs`.
+      «Registratori da abbinare all'abbonamento» (`rt_abb`: non decisi o più registratori col software dei canoni). Stato di ogni matricola in elenco e TXT/PDF.
+      Export «Per Ital Retail» (PDF lettera e CSV per Excel; `righeItalRetail`/`exportItalRetail` in app.js, `pdfItalRetail` + destinatario `ITAL_RETAIL`
+      in pdf.js): matricole dei registratori col software dei clienti «non installabile» (solo cassa esclusi, senza matricola contati e avvisati),
+      con software e motivo (le note interne no), per chiedere a Italretail/Zucchetti di non rinnovare il Basic Support. Mittente = dati del laboratorio. Prova: `test/abbonamenti.mjs`.
       I CSV con i dati dei clienti NON vanno nel repository.
 - [x] Planning (2026-11-18): sezione «Planning» (`public/js/planning.js`, caricato prima di `app.js`; stato in `PL`, eventi propri su
       `data-pl-act` / `data-pl`) con il lavoro da fare in un giorno, in un mese o da data a data, raggruppato per giorno e cliente:
