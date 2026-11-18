@@ -167,6 +167,7 @@ const AIUTI = {
     titolo: "Scadenze",
     serve: "Gli apparecchi da verificare: quelli scaduti, quelli che scadono a breve e quelli a posto.",
     campi: [
+      ["Riepilogo in alto", "Totale apparecchi attivi (esclusi i dismessi e quelli dei clienti cessati), scadute, entro 30 giorni, entro 60 giorni e senza data. Un clic su un riquadro mostra solo quelle; «Totale apparecchi attivi» le rimostra tutte. Le scadenze si contano una per tipo: un registratore col DGFE annuale ne ha due."],
       ["Scaduto", "La verificazione periodica è oltre i due anni: l'apparecchio è fuori regola."],
       ["In scadenza", "Manca poco: è il momento di chiamare il cliente e fissare l'intervento."],
       ["Cliente", "Un tocco apre la sua scheda con telefono e indirizzo."],
@@ -294,21 +295,23 @@ function banners() {
 const addDaysIso = (iso, n) => { if (!iso) return ""; const [y, m, d] = iso.split("-").map(Number); const t = new Date(y, m - 1, d + n); return `${t.getFullYear()}-${pad2(t.getMonth() + 1)}-${pad2(t.getDate())}`; };
 
 function viewScadenze() {
-  const rows = allScadenze(); const pre = lab().preavviso;
+  const rows = allScadenze();
+  // Riepilogo in alto: apparecchi attivi (né dismessi né di clienti cessati) e scadenze per fascia; un clic filtra l'elenco
   const cnt = {
+    apparecchi: new Set(rows.map((r) => r.a.id)).size,
     scadute: rows.filter((r) => r.st.n !== null && r.st.n < 0).length, m30: rows.filter((r) => r.st.n !== null && r.st.n >= 0 && r.st.n <= 30).length,
-    pre: rows.filter((r) => r.st.n !== null && r.st.n >= 0 && r.st.n <= pre).length, mancanti: rows.filter((r) => r.st.n === null).length,
+    m60: rows.filter((r) => r.st.n !== null && r.st.n >= 0 && r.st.n <= 60).length, mancanti: rows.filter((r) => r.st.n === null).length,
   };
   const q = norm(UI.q);
   let f = rows.filter((r) => UI.tipo === "tutti" || r.tipo === UI.tipo);
   if (UI.filtro === "scadute") f = f.filter((r) => r.st.n !== null && r.st.n < 0);
   if (UI.filtro === "m30") f = f.filter((r) => r.st.n !== null && r.st.n >= 0 && r.st.n <= 30);
-  if (UI.filtro === "pre") f = f.filter((r) => r.st.n !== null && r.st.n >= 0 && r.st.n <= pre);
+  if (UI.filtro === "m60") f = f.filter((r) => r.st.n !== null && r.st.n >= 0 && r.st.n <= 60);
   if (UI.filtro === "mancanti") f = f.filter((r) => r.st.n === null);
   if (q) f = f.filter((r) => norm([r.c?.ragione, r.c?.piva, r.a.matricola, r.a.modello, r.a.indirizzo, r.a.localita].join(" ")).includes(q));
   const stat = (k, cls, n, l) => `<button class="stat ${cls} ${UI.filtro === k ? "sel" : ""}" data-act="filtro" data-v="${k}"><b>${n}</b><span class="faint">${l}</span></button>`;
   return `
-  <div class="stats">${stat("scadute", "bad", cnt.scadute, "Scadute")}${stat("m30", "warn", cnt.m30, "Entro 30 giorni")}${stat("pre", "", cnt.pre, `Entro ${pre} giorni`)}${stat("mancanti", "", cnt.mancanti, "Senza data")}</div>
+  <div class="stats s5">${stat("tutte", "", cnt.apparecchi, "Totale apparecchi attivi")}${stat("scadute", "bad", cnt.scadute, "Scadute")}${stat("m30", "warn", cnt.m30, "Entro 30 giorni")}${stat("m60", "", cnt.m60, "Entro 60 giorni")}${stat("mancanti", "", cnt.mancanti, "Senza data")}</div>
   <div class="spread">
     <div class="chips" role="group" aria-label="Tipo scadenza">
       ${[["tutti", "Tutte"], ["VP", "Verifica biennale"], ["DGFE", "DGFE annuale"]].map(([k, l]) => `<button class="chip" aria-pressed="${UI.tipo === k}" data-act="tipo" data-v="${k}">${l}</button>`).join("")}
