@@ -34,7 +34,7 @@ node test/storico.mjs
 
 ## Stampa: timbro, PDF, termica Bluetooth
 `test/stampa.mjs` prova nel browser (Playwright con Chromium, non serve il server) il timbro del cliente, i PDF A4/80 mm/dichiarazione
-col timbro, i comandi ESC/POS (righe entro 48/32 colonne, solo ASCII, immagini raster, taglio) e l'invio a una stampante Bluetooth simulata.
+col timbro, i comandi ESC/POS (righe entro 48/32 colonne, solo ASCII, immagini raster, taglio) l'invio a una stampante Bluetooth simulata e la scheda di verifica in bianco (ESC/POS 80/58 mm e PDF).
 
 ```bash
 node test/stampa.mjs                 # OUT=/cartella salva anche i PDF e i comandi ESC/POS di esempio

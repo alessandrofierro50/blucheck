@@ -454,7 +454,8 @@ function viewImpostazioni() {
     <div class="grid3">${f("pfNome", "Cognome e nome", me.nome)}${f("pfCf", "Codice fiscale", me.cf, "text", 'class="mono" autocapitalize="characters"')}${f("pfSigillo", "Sigillo / identificativo", me.sigillo)}</div>
     <div class="field"><span>La tua firma</span><div class="sigbox" data-act="sign-tecnico" id="sigProfilo">${S.firmaTecnico ? `<img src="${S.firmaTecnico}" alt="La tua firma">` : `<span>Tocca per firmare</span>`}</div></div>
     <div class="row"><button class="btn primary" data-act="save-profilo">Salva profilo</button><button class="btn" data-act="chg-pwd">Cambia password</button><button class="btn ghost" data-act="logout">Esci</button></div>
-    <p class="faint" style="margin:0">Accesso: ${esc(me.email)}</p></div>`;
+    <p class="faint" style="margin:0">Accesso: ${esc(me.email)}</p></div>
+  <div class="panel" id="provaTermica">${panelProvaTermica()}</div>`;
   if (!isAdmin()) return h;
   h += `<div class="panel"><h2>Dati del laboratorio</h2><p class="faint" style="margin:0">Compaiono nell'intestazione dei rapporti e nella dichiarazione.</p>
     <div class="grid2">${f("lbRagione", "Ragione sociale", L.ragione)}${f("lbPiva", "Partita IVA", L.piva, "text", 'class="mono"')}${f("lbIndirizzo", "Indirizzo", L.indirizzo)}${f("lbCap", "CAP / Località / Prov.", L.cap)}${f("lbTel", "Telefono", L.telefono, "tel")}${f("lbEmail", "Email (riceve gli avvisi)", L.email, "email")}${f("lbLuogo", "Luogo predefinito sui rapporti", L.luogo)}${f("lbPre", "Giorni di preavviso scadenze", L.preavviso, "number", 'min="1" max="365"')}</div>
@@ -1164,6 +1165,37 @@ function panelTermica(v) {
     ${bt ? `<label class="check"><input type="checkbox" data-act="bt-lenta" ${p.lenta ? "checked" : ""}> Modalità compatibile (più lenta): usala se la stampa esce tagliata o con righe strane</label>` : ""}
     ${st.err ? `<div class="qrres"><b>Stampa non riuscita</b>${esc(st.err)}</div>` : ""}</div>`;
 }
+/* prova di stampa termica (Impostazioni): scheda di verifica in bianco da compilare a mano, con Bluetooth, RawBT o PDF */
+const PROVA = { tipo: "integro" };
+function panelProvaTermica() {
+  const p = btPref(), bt = btDisponibile();
+  const carta = [80, 58].map((n) => `<button data-act="bt-carta" data-v="${n}" aria-pressed="${p.carta === n}">${n} mm</button>`).join("");
+  const tipo = [["integro", "Sigillo integro (All. 1)"], ["privo", "Sigillo assente (All. 2)"]].map(([k, l]) => `<button data-act="prova-tipo" data-v="${k}" aria-pressed="${PROVA.tipo === k}">${l}</button>`).join("");
+  return `<h2>Prova di stampa termica</h2>
+    <p class="faint" style="margin:0">Stampa la scheda di verifica in bianco da compilare a mano (caselle SI/NO, righe per esercente, apparecchio, firme e timbro), con in fondo un controllo della larghezza.${p.nome ? ` Ultima stampante: <b>${esc(p.nome)}</b>.` : ""}</p>
+    <div class="field"><span>Scheda</span><div class="seg wide choose" role="group">${tipo}</div></div>
+    <div class="field"><span>Larghezza carta</span><div class="seg wide choose" role="group">${carta}</div></div>
+    <div class="row">${bt ? `<button class="btn primary" data-act="prova-bt" ${PROVA.busy ? "disabled" : ""}>${PROVA.busy ? `Stampa in corso… ${Math.round((PROVA.pct || 0) * 100)}%` : "Stampa con Bluetooth"}</button>` : ""}
+      ${isAndroid() ? `<button class="btn" data-act="prova-rawbt">Stampa con RawBT</button>` : ""}
+      <button class="btn" data-act="prova-pdf">PDF 80 mm (Windows / altre app)</button></div>
+    <p class="faint" style="margin:0">Bluetooth diretto: solo stampanti «BLE» con Chrome su Android; se la tua non compare nell'elenco usa RawBT. Il PDF serve per stampare da Windows col driver POS80: se la scheda esce bene da RawBT e spezzata da Windows, il problema è il driver.</p>
+    ${PROVA.err ? `<div class="qrres"><b>Stampa non riuscita</b>${esc(PROVA.err)}</div>` : ""}`;
+}
+const paintProva = () => { const el = $("#provaTermica"); if (el) el.innerHTML = panelProvaTermica(); };
+const bytesProva = () => escposSchedaBianca(btPref().carta, PROVA.tipo, lab());
+async function provaBt() {
+  if (PROVA.busy) return; PROVA.busy = true; PROVA.pct = 0; PROVA.err = ""; paintProva();
+  try {
+    await btCollega(true);
+    const bytes = await bytesProva();
+    let last = 0; await btStampa(bytes, (p) => { if (p - last >= 0.05 || p === 1) { last = p; PROVA.pct = p; paintProva(); } });
+    toast("Scheda inviata alla stampante");
+  } catch (e) {
+    if (!(e?.name === "NotFoundError" && /cancel/i.test(e.message || ""))) PROVA.err = e?.name === "NetworkError" ? "La stampante non risponde: controlla che sia accesa, vicina e non collegata a un altro telefono." : e?.name === "NotFoundError" ? "Nessuna stampante scelta. Se la tua non compare nell'elenco è Bluetooth classico: usa «Stampa con RawBT»." : e.message || String(e);
+    if (e?.name === "NetworkError") Termica.ch = null;
+  }
+  PROVA.busy = false; paintProva();
+}
 async function escposDi(id) {
   const v = S.verifiche.find((x) => x.id === id); if (!v) throw new Error("Rapporto non trovato.");
   const { f, firmaT } = await firmeRapporto(v);
@@ -1257,7 +1289,11 @@ document.addEventListener("click", async (e) => {
     case "pdf-share": { const p = UI.sheet?.pdf; if (p?.blob) await condividiFile(p.blob, p.nome, p.nome.replace(/\.pdf$/, "")); break; }
     case "pdf80-share": try { const r = await pdfBlob("80", id); await condividiFile(r.blob, r.nome, r.titolo); } catch (err) { apiError(err); } break;
     case "ver-timbro": if (UI.sheet) { UI.sheet.timbro = el.checked; if (UI.sheet.pdf?.url) URL.revokeObjectURL(UI.sheet.pdf.url); UI.sheet.pdf = null; renderSheet(); } break;
-    case "bt-carta": ls.set(BT_PREF, { ...btPref(), carta: Number(el.dataset.v) }); renderSheet(); break;
+    case "bt-carta": ls.set(BT_PREF, { ...btPref(), carta: Number(el.dataset.v) }); if (UI.sheet) renderSheet(); paintProva(); break;
+    case "prova-bt": await provaBt(); break;
+    case "prova-tipo": PROVA.tipo = el.dataset.v; paintProva(); break;
+    case "prova-rawbt": try { location.href = rawbtUrl(await bytesProva()); setTimeout(() => toast("Se non si apre niente, installa RawBT dal Play Store e collega lì la stampante.", 6000), 1500); } catch (err) { apiError(err); } break;
+    case "prova-pdf": { const w = window.open("", "_blank"); try { const blob = pdfSchedaBianca(PROVA.tipo, lab()).output("blob"), url = URL.createObjectURL(blob); if (w && !w.closed) w.location.href = url; else scaricaFile(`Scheda_verifica_80mm_${PROVA.tipo}.pdf`, blob); } catch (err) { w?.close(); apiError(err); } break; }
     case "bt-lenta": ls.set(BT_PREF, { ...btPref(), lenta: el.checked }); break;
     case "bt-stampa": await stampaTermica(id, !Termica.device); break;
     case "bt-cambia": await stampaTermica(id, true); break;
