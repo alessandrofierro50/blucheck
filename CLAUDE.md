@@ -77,6 +77,10 @@ Questo software fa parte del progetto BluCode Informatica. La memoria condivisa 
       preferenze carta 80/58 mm e «modalità compatibile» in localStorage `blucheck_termica`). Solo Chrome/Edge su Android o computer, in https.
       Ripieghi: «Stampa con RawBT» (Android, stessi byte via `intent:base64`, anche per stampanti Bluetooth classiche) e «Condividi PDF 80 mm»
       (iPhone: app della stampante). Dopo un PDF c'è anche «Condividi». Prova: `test/stampa.mjs` (Playwright, Bluetooth simulato).
+      Impostazioni > «Prova di stampa termica» (per tutti, anche i tecnici; `panelProvaTermica` in app.js): stampa la **scheda di verifica in
+      bianco** da compilare a mano (`v.bianco` in `pdfThermal`/`escposRapporto`: caselle «[ ]SI [ ]NO», righe per esercente/apparecchio/date,
+      esito da spuntare, spazio per firme e timbro; All. 1 o All. 2) con in fondo un controllo della larghezza (righello di colonne e barra
+      raster a tutta carta, `escposSchedaBianca`), via Bluetooth, RawBT o PDF 80 mm (`pdfSchedaBianca`, righello in mm) per il driver POS80 di Windows.
 - [x] Importa QR da file (2026-11-18): Apparecchi > «Importa QR da file» (`public/js/importa-qr.js`, caricato da `app.js` solo al clic con
       `caricaImportaQr`, `?v=` da cambiare a ogni modifica del file; pannello `qrimp`, eventi propri `data-qi-act` / `data-qi-sel`).
       Il browser legge foto, PDF (pdf.js 4.10.38 legacy in `public/vendor/pdfjs`, import dinamico) e ZIP (lettore interno con

@@ -56,6 +56,15 @@ const r = await page.evaluate(async () => {
     ricevuti: window.__ricevuti.length === bytes.length && window.__ricevuti.every((x, i) => x === bytes[i]), servizi: window.__opzioni?.optionalServices?.length,
     rawbt: rawbtUrl(new Uint8Array([27, 64, 65])), b64esc: btoa(String.fromCharCode(...bytes.slice(0, 0))) === "",
     bytes: Array.from(bytes),
+    bianca: await (async () => {
+      const L = { ragione: "CDL Italia srl", piva: "09876543210" };
+      const b80 = await escposSchedaBianca(80, "integro", L), b58 = await escposSchedaBianca(58, "privo", L);
+      const r80 = testo(b80), r58 = testo(b58);
+      return { righe: r80, max80: Math.max(...r80.map((x) => x.length)), max58: Math.max(...r58.map((x) => x.length)), fine: [...b80.slice(-4)],
+        caselle: r80.filter((x) => x.endsWith("[ ]SI [ ]NO")).length, test80: buildTests("integro").filter((t) => !t.head).length + PRE.length,
+        tagli: (() => { let n = 0; for (let i = 0; i < b80.length - 2; i++) if (b80[i] === 0x1d && b80[i + 1] === 0x56) n++; return n; })(),
+        pdf: b64(pdfSchedaBianca("integro", L)), pdfPrivo: pdfSchedaBianca("privo", L).getNumberOfPages() };
+    })(),
   };
 });
 ok(r.tb, "timbro del cliente: PNG più largo che alto");
@@ -75,7 +84,15 @@ ok(r.esitoRiga, "esito stampato");
 ok(r.ricevuti, "Bluetooth simulato: la stampante ha ricevuto tutti i byte, in ordine");
 ok(r.servizi >= 5, "richiesta Bluetooth con i servizi delle stampanti note");
 ok(r.rawbt === "intent:base64,G0BB#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;", "link RawBT");
+ok(r.bianca.max80 <= 48 && r.bianca.max58 <= 32, `scheda in bianco entro 48/32 colonne: ${r.bianca.max80} / ${r.bianca.max58}`);
+ok(r.bianca.caselle === r.bianca.test80, `scheda in bianco: caselle SI/NO su ogni prova (${r.bianca.caselle} di ${r.bianca.test80})`);
+ok(r.bianca.tagli === 1 && r.bianca.fine.join() === "29,86,66,0", "scheda in bianco: un solo taglio, alla fine");
+ok(r.bianca.righe.some((x) => x.startsWith("Matricola ___")) && r.bianca.righe.some((x) => x.includes("[ ] POSITIVO")), "scheda in bianco: righe da compilare ed esito da spuntare");
+ok(r.bianca.pdfPrivo === 1, "PDF 80 mm della scheda in bianco (All. 2) su una pagina");
 if (OUT) {
+  fs.mkdirSync(OUT, { recursive: true });
+  fs.writeFileSync(path.join(OUT, "scheda-bianca-80mm.pdf"), Buffer.from(r.bianca.pdf, "base64"));
+  fs.writeFileSync(path.join(OUT, "scheda-bianca-80mm.txt"), r.bianca.righe.join("\n"));
   fs.mkdirSync(OUT, { recursive: true });
   for (const [k, n] of [["a4", "rapporto-a4.pdf"], ["th", "rapporto-80mm.pdf"], ["di", "dichiarazione.pdf"]]) fs.writeFileSync(path.join(OUT, n), Buffer.from(r.pdf[k], "base64"));
   fs.writeFileSync(path.join(OUT, "rapporto-80mm.escpos.bin"), Buffer.from(r.bytes));

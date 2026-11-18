@@ -206,8 +206,9 @@ function pdfDich(v, firmaU, firmaT, timbro) {
   return d;
 }
 
-function pdfThermal(v, firmaU, firmaT, timbro) {
+function pdfThermal(v, firmaU, firmaT, timbro, coda) {
   const { jsPDF } = window.jspdf; const L = labFor(v);
+  const B = !!v.bianco, u = (x, n = 22) => (B ? "_".repeat(n) : x), box = "[  ] SI   [  ] NO"; // B = modulo in bianco da compilare a mano
   const run = (d) => {
     const X = 4, W = 72; let y = 5;
     const t = (s, fs = 8, st = "normal", align = "left") => { d.setFont("helvetica", st); d.setFontSize(fs); const lines = d.splitTextToSize(clean(s), W); d.text(lines, align === "center" ? X + W / 2 : X, y + LH(fs) * 0.8, { align }); y += lines.length * LH(fs) + 0.6; };
@@ -215,28 +216,47 @@ function pdfThermal(v, firmaU, firmaT, timbro) {
     const sep = () => { d.setLineDashPattern([0.8, 0.8], 0); d.setLineWidth(0.2); d.line(X, y + 1, X + W, y + 1); d.setLineDashPattern([], 0); y += 2.6; };
     t(L.ragione, 10, "bold", "center"); t(`${L.indirizzo || ""} ${L.cap || ""}`, 7.5, "normal", "center"); if (L.piva) t(`P.I. ${L.piva}`, 7.5, "normal", "center"); sep();
     t("RAPPORTO DI VERIFICAZIONE PERIODICA RT", 8.5, "bold", "center"); t(v.tipo === "privo" ? "PRIVO DI SIGILLO FISCALE" : "CON SIGILLO FISCALE INTEGRO", 8, "bold", "center");
-    t("(Provv. A.E. 28/07/2003 e 28/10/2016)", 6.5, "normal", "center"); t(`N. ${v.numero || ""}`, 8, "bold", "center"); sep();
+    t("(Provv. A.E. 28/07/2003 e 28/10/2016)", 6.5, "normal", "center"); t(`N. ${u(v.numero || "", 14)}`, 8, "bold", "center"); sep();
+    if (B) {
+      // etichetta e riga da compilare fino al bordo destro
+      const riga = (l) => { y += 3; d.setFont("helvetica", "normal"); d.setFontSize(7.5); if (l) d.text(l, X, y); const x0 = l ? X + d.getTextWidth(l) + 1.5 : X; d.setLineWidth(0.2); d.line(x0, y + 0.6, X + W, y + 0.6); y += 2.2; };
+      t("ESERCENTE", 7, "bold"); riga("Ragione sociale"); riga("Domicilio"); riga("P.IVA"); y += 1;
+      t("UBICAZIONE", 7, "bold"); riga(""); y += 1;
+      t("APPARECCHIO", 7, "bold"); riga("Marchio/Modello"); riga("Matricola"); y += 1;
+      t("Intervento: " + INTERVENTI.map(([, l]) => "[  ] " + l).join("  "), 7.5); sep();
+    } else {
     t("ESERCENTE", 7, "bold"); t(v.cli?.ragione || "", 8, "bold"); if (v.cli?.domicilio) t(v.cli.domicilio, 7.5); t(`P.IVA ${v.cli?.piva || ""}`, 7.5);
     t("UBICAZIONE", 7, "bold"); t([v.app?.indirizzo, v.app?.localita].filter(Boolean).join(" - ") || "-", 7.5);
     t("APPARECCHIO", 7, "bold"); t(v.app?.modello || "", 7.5); t(`Matricola ${v.app?.matricola || ""}`, 8, "bold");
     t("Intervento: " + INTERVENTI.filter(([k]) => v.interventi?.[k]).map(([, l]) => l).join(", "), 7.5); sep();
-    const val = (k) => v.esiti?.[k] === "si" ? "SI" : v.esiti?.[k] === "no" ? "NO" : "-";
+    }
+    const val = (k) => B ? box : v.esiti?.[k] === "si" ? "SI" : v.esiti?.[k] === "no" ? "NO" : "-";
     t("1.0 ESAME PRELIMINARE", 7.5, "bold");
     PRE.forEach((p) => lr(`${p.c || "   "} ${TX[p.k][1]}`, val(p.k)));
-    if (v.tipoSigillo) t(`Tipo sigillo: ${v.tipoSigillo}. ${SIGILLI[v.tipoSigillo]}`, 7);
+    if (B) t("Tipo sigillo: " + Object.entries(SIGILLI).map(([k, l]) => `[  ] ${k}. ${l}`).join("   "), 7);
+    else if (v.tipoSigillo) t(`Tipo sigillo: ${v.tipoSigillo}. ${SIGILLI[v.tipoSigillo]}`, 7);
     t(v.tipo === "privo" ? "2.0 RT PRIVO DI SIGILLO" : "2.0 RT CON SIGILLO INTEGRO", 7.5, "bold");
     for (const x of buildTests(v.tipo)) { if (x.head) t(`${x.c} ${x.s}`, 7, "bold"); else lr(`${x.c} ${x.s}`, val(x.k)); }
     sep();
-    lr("Firmware presente", v.fwPresente || "-", 7.5); if (v.fwAggiornato) lr("Aggiornato a", v.fwAggiornato, 7.5);
-    lr("Inizio", `${fmtD(v.data)} ${v.oraInizio || ""}`, 7.5); lr("Fine", `${fmtD(v.dataFine || v.data)} ${v.oraFine || ""}`, 7.5);
-    lr("P.I. Laboratorio", L.piva || "", 7.5); lr("C.F. Tecnico", L.cfTecnico || "", 7.5); sep();
+    if (B) y += 1;
+    lr("Firmware presente", u(v.fwPresente || "-"), 7.5); if (B || v.fwAggiornato) { if (B) y += 1; lr("Aggiornato a", u(v.fwAggiornato)); }
+    if (B) y += 1; lr("Inizio", B ? "___/___/______  ___:___" : `${fmtD(v.data)} ${v.oraInizio || ""}`, 7.5);
+    if (B) y += 1; lr("Fine", B ? "___/___/______  ___:___" : `${fmtD(v.dataFine || v.data)} ${v.oraFine || ""}`, 7.5);
+    lr("P.I. Laboratorio", L.piva || u(""), 7.5); if (B) y += 1; lr("C.F. Tecnico", L.cfTecnico || u(""), 7.5); sep();
+    if (B) { t("ESITO:   [  ] POSITIVO     [  ] NEGATIVO", 9.5, "bold", "center"); y += 1.5; t("Prossima verificazione entro il ___/___/______", 7.5, "normal", "center"); }
+    else {
     t(v.esito === "positivo" ? "ESITO POSITIVO" : v.esito === "negativo" ? "ESITO NEGATIVO" : "ESITO NON DETERMINATO", 12, "bold", "center");
     if (v.esito === "positivo") t(`Prossima verificazione entro il ${fmtD(addYears(v.data, 2))}`, 8, "bold", "center");
-    sep(); t(`${v.luogo || ""}, ${fmtD(v.dataFine || v.data)}`, 7.5);
+    }
+    sep();
+    if (B) { y += 3; d.setFont("helvetica", "normal"); d.setFontSize(7.5); d.text("Luogo e data", X, y); d.line(X + d.getTextWidth("Luogo e data") + 1.5, y + 0.6, X + W, y + 0.6); y += 4; }
+    else t(`${v.luogo || ""}, ${fmtD(v.dataFine || v.data)}`, 7.5);
     const sig = (label, url, who) => { t(label, 7, "bold"); if (url) { try { const p = d.getImageProperties(url); let w = 50, h = p.height * w / p.width; if (h > 20) { h = 20; w = p.width * h / p.height; } d.addImage(url, "PNG", X + (W - w) / 2, y, w, h); y += h + 1; } catch { } } else y += 12; d.line(X + 6, y, X + W - 6, y); y += 1.2; t(who, 7, "normal", "center"); };
-    sig("Tecnico abilitato", firmaT, `${L.tecnico} - ${L.cfTecnico} - ${L.sigillo}`);
-    sig("L'utente", firmaU, `${v.utenteNome || ""}${v.utenteQualifica ? " - " + v.utenteQualifica : ""}`);
+    sig("Tecnico abilitato", firmaT, B ? "Cognome, nome, C.F., sigillo" : `${L.tecnico} - ${L.cfTecnico} - ${L.sigillo}`);
+    sig("L'utente", firmaU, B ? "Cognome, nome, qualifica - timbro" : `${v.utenteNome || ""}${v.utenteQualifica ? " - " + v.utenteQualifica : ""}`);
+    if (B) y += 18; // spazio per il timbro a mano
     if (timbro) { y += 1.5; let w = W - 20, h = timbro.h * w / timbro.w; if (h > 30) { h = 30; w = timbro.w * h / timbro.h; } try { d.addImage(timbro.url, "PNG", X + (W - w) / 2, y, w, h); y += h; } catch { } }
+    if (coda) y = coda(d, X, W, y);
     return y + 8;
   };
   const tmp = new jsPDF({ unit: "mm", format: [80, 2000] }); const h = run(tmp);
@@ -286,8 +306,9 @@ function escImage(url, maxDots, maxH = 400) {
     im.onerror = () => res(null); im.src = url;
   });
 }
-async function escposRapporto(v, firmaU, firmaT, timbro, carta = 80) {
+async function escposRapporto(v, firmaU, firmaT, timbro, carta = 80, taglia = true) {
   const { cols, dots } = ESC_CARTA[carta] || ESC_CARTA[80]; const L = labFor(v);
+  const B = !!v.bianco; // modulo in bianco da compilare a mano
   const parts = []; const raw = (...b) => parts.push(Uint8Array.from(b.flat()));
   const enc = (s) => Uint8Array.from([...s].map((c) => c.charCodeAt(0) & 0x7f));
   const align = (n) => raw(0x1b, 0x61, n), bold = (on) => raw(0x1b, 0x45, on ? 1 : 0), size = (n) => raw(0x1d, 0x21, n);
@@ -299,31 +320,85 @@ async function escposRapporto(v, firmaU, firmaT, timbro, carta = 80) {
   raw(0x1b, 0x40); raw(0x1b, 0x74, 0x00);
   t(L.ragione, { b: true, c: true }); t(`${L.indirizzo || ""} ${L.cap || ""}`.trim(), { c: true }); if (L.piva) t(`P.I. ${L.piva}`, { c: true }); sep();
   t("RAPPORTO DI VERIFICAZIONE PERIODICA RT", { b: true, c: true }); t(v.tipo === "privo" ? "PRIVO DI SIGILLO FISCALE" : "CON SIGILLO FISCALE INTEGRO", { b: true, c: true });
-  t("(Provv. A.E. 28/07/2003 e 28/10/2016)", { c: true }); t(`N. ${v.numero || ""}`, { b: true, c: true }); sep();
+  const campo = (l) => { raw(0x0a); align(0); line((l ? l + " " : "") + "_".repeat(Math.max(4, cols - (l ? l.length + 1 : 0)))); };
+  t("(Provv. A.E. 28/07/2003 e 28/10/2016)", { c: true }); t(`N. ${B ? "______________" : v.numero || ""}`, { b: true, c: true }); sep();
+  if (B) {
+    t("ESERCENTE", { b: true }); campo("Ragione sociale"); campo("Domicilio"); campo("P.IVA");
+    raw(0x0a); t("UBICAZIONE", { b: true }); campo("");
+    raw(0x0a); t("APPARECCHIO", { b: true }); campo("Marchio/Modello"); campo("Matricola");
+    raw(0x0a); t("Intervento:", { b: true });
+    { let r = ""; for (const [, l] of INTERVENTI) { const it = "[ ] " + l; if (r && (r + "  " + it).length > cols) { line(r); r = it; } else r = r ? r + "  " + it : it; } if (r) line(r); }
+    sep();
+  } else {
   t("ESERCENTE", { b: true }); t(v.cli?.ragione || ""); if (v.cli?.domicilio) t(v.cli.domicilio); t(`P.IVA ${v.cli?.piva || ""}`);
   t("UBICAZIONE", { b: true }); t([v.app?.indirizzo, v.app?.localita].filter(Boolean).join(" - ") || "-");
   t("APPARECCHIO", { b: true }); t(v.app?.modello || ""); t(`Matricola ${v.app?.matricola || ""}`, { b: true });
   t("Intervento: " + INTERVENTI.filter(([k]) => v.interventi?.[k]).map(([, l]) => l).join(", ")); sep();
-  const val = (k) => v.esiti?.[k] === "si" ? "SI" : v.esiti?.[k] === "no" ? "NO" : "-";
+  }
+  const val = (k) => B ? "[ ]SI [ ]NO" : v.esiti?.[k] === "si" ? "SI" : v.esiti?.[k] === "no" ? "NO" : "-";
   t("1.0 ESAME PRELIMINARE", { b: true });
   PRE.forEach((p) => lr(`${p.c || "   "} ${TX[p.k][1]}`, val(p.k)));
-  if (v.tipoSigillo) t(`Tipo sigillo: ${v.tipoSigillo}. ${SIGILLI[v.tipoSigillo]}`);
+  if (B) { t("Tipo sigillo:"); Object.entries(SIGILLI).forEach(([k, l]) => t(`[ ] ${k}. ${l}`)); }
+  else if (v.tipoSigillo) t(`Tipo sigillo: ${v.tipoSigillo}. ${SIGILLI[v.tipoSigillo]}`);
   t(v.tipo === "privo" ? "2.0 RT PRIVO DI SIGILLO" : "2.0 RT CON SIGILLO INTEGRO", { b: true });
   for (const x of buildTests(v.tipo)) { if (x.head) t(`${x.c} ${x.s}`, { b: true }); else lr(`${x.c} ${x.s}`, val(x.k)); }
   sep();
+  if (B) {
+    campo("Firmware presente"); campo("Aggiornato a"); raw(0x0a); line("Inizio  ___/___/______  ___:___"); raw(0x0a); line("Fine    ___/___/______  ___:___");
+    if (L.piva) lr("P.I. Laboratorio", L.piva); else campo("P.I. Laboratorio"); campo("C.F. Tecnico"); sep();
+    raw(0x0a); t("ESITO:  [ ] POSITIVO   [ ] NEGATIVO", { b: true, c: true }); raw(0x0a); t("Prossima verificazione entro ___/___/______", { c: true });
+    sep(); campo("Luogo e data");
+  } else {
   lr("Firmware presente", v.fwPresente || "-"); if (v.fwAggiornato) lr("Aggiornato a", v.fwAggiornato);
   lr("Inizio", `${fmtD(v.data)} ${v.oraInizio || ""}`.trim()); lr("Fine", `${fmtD(v.dataFine || v.data)} ${v.oraFine || ""}`.trim());
   lr("P.I. Laboratorio", L.piva || ""); lr("C.F. Tecnico", L.cfTecnico || ""); sep();
   t(v.esito === "positivo" ? "ESITO POSITIVO" : v.esito === "negativo" ? "ESITO NEGATIVO" : "ESITO NON DETERMINATO", { b: true, c: true, big: true });
   if (v.esito === "positivo") t(`Prossima verificazione entro il ${fmtD(addYears(v.data, 2))}`, { b: true, c: true });
   sep(); t(`${v.luogo || ""}, ${fmtD(v.dataFine || v.data)}`);
+  }
   const sig = async (label, url, who) => { raw(0x0a); t(label, { b: true }); if (!(await img(url, Math.round(dots * 0.7), 200))) raw(0x0a, 0x0a, 0x0a); align(1); line("_".repeat(Math.round(cols * 0.8))); t(who, { c: true }); };
-  await sig("Tecnico abilitato", firmaT, `${L.tecnico} - ${L.cfTecnico} - ${L.sigillo}`);
-  await sig("L'utente", firmaU, `${v.utenteNome || ""}${v.utenteQualifica ? " - " + v.utenteQualifica : ""}`);
+  await sig("Tecnico abilitato", firmaT, B ? "Cognome, nome, C.F., sigillo" : `${L.tecnico} - ${L.cfTecnico} - ${L.sigillo}`);
+  await sig("L'utente", firmaU, B ? "Cognome, nome, qualifica - timbro" : `${v.utenteNome || ""}${v.utenteQualifica ? " - " + v.utenteQualifica : ""}`);
+  if (B) raw(0x1b, 0x64, 8); // spazio per il timbro a mano
   if (timbro?.url) { raw(0x0a); await img(timbro.url, Math.round(dots * 0.8), 260); }
-  align(0); raw(0x1b, 0x64, 5); raw(0x1d, 0x56, 0x42, 0x00); // avanza e taglia (chi non ha la taglierina lo ignora)
+  align(0); if (taglia) { raw(0x1b, 0x64, 5); raw(0x1d, 0x56, 0x42, 0x00); } // avanza e taglia (chi non ha la taglierina lo ignora)
   const n = parts.reduce((a, p) => a + p.length, 0), out = new Uint8Array(n); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; }
   return out;
+}
+
+/* ---------------- Prova di stampa termica: scheda di verifica in bianco ----------------
+   Il rapporto 80 mm vuoto, con caselle SI/NO e righe da compilare a mano, seguito da un piccolo controllo della larghezza
+   (righello di colonne e barra nera a tutta carta: 576 punti = 72 mm per l'80 mm, 384 = 48 mm per il 58 mm).
+   Serve sia come modulo cartaceo sia per capire se stampante, collegamento o driver di Windows stampano giusto. */
+const vBianco = (tipo, L) => ({ bianco: true, tipo: tipo === "privo" ? "privo" : "integro", lab: L || {}, tecnico: {}, esiti: {} });
+function barraRaster(larghezza, alto) {
+  const bw = Math.ceil(larghezza / 8), out = new Uint8Array(8 + bw * alto).fill(0xff);
+  out.set([0x1d, 0x76, 0x30, 0x00, bw & 255, bw >> 8, alto & 255, alto >> 8]);
+  return out;
+}
+async function escposSchedaBianca(carta = 80, tipo = "integro", L = {}) {
+  const { cols, dots } = ESC_CARTA[carta] || ESC_CARTA[80];
+  const corpo = await escposRapporto(vBianco(tipo, L), "", "", null, carta, false);
+  const parts = [corpo]; const raw = (...b) => parts.push(Uint8Array.from(b.flat()));
+  const line = (s) => { parts.push(Uint8Array.from([...s].map((c) => c.charCodeAt(0) & 0x7f))); raw(0x0a); };
+  raw(0x1b, 0x61, 0); raw(0x0a); line("-".repeat(cols));
+  escWrap(`Controllo stampa: carta ${carta} mm, ${cols} colonne, ${dots} punti`, cols).forEach(line);
+  line("1234567890".repeat(Math.ceil(cols / 10)).slice(0, cols));
+  parts.push(barraRaster(dots, 12)); raw(0x0a);
+  escWrap("Righello su una riga e barra intera: larghezza giusta", cols).forEach(line);
+  raw(0x1b, 0x64, 5); raw(0x1d, 0x56, 0x42, 0x00);
+  const tot = parts.reduce((a, p) => a + p.length, 0), out = new Uint8Array(tot); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+// la stessa scheda in PDF 80 mm (da stampare da Windows col driver POS80, o da un'app), con righello in mm in fondo
+function pdfSchedaBianca(tipo = "integro", L = {}) {
+  return pdfThermal(vBianco(tipo, L), "", "", null, (d, X, W, y) => {
+    y += 4; d.setLineDashPattern([0.8, 0.8], 0); d.line(X, y, X + W, y); d.setLineDashPattern([], 0); y += 3;
+    d.setFont("helvetica", "normal"); d.setFontSize(6.5); d.text(`Controllo stampa: righello ${W} mm e barra a tutta larghezza`, X, y + 2); y += 4;
+    d.setLineWidth(0.2); d.line(X, y + 4, X + W, y + 4);
+    for (let mm = 0; mm <= W; mm++) { const h = mm % 10 === 0 ? 4 : mm % 5 === 0 ? 2.5 : 1.3; d.line(X + mm, y + 4 - h, X + mm, y + 4); if (mm % 10 === 0) { d.setFontSize(5.5); d.text(String(mm), Math.min(X + mm, X + W - 1.5), y + 6.6, { align: "center" }); } }
+    y += 8; d.setFillColor(0); d.rect(X, y, W, 3, "F"); return y + 3;
+  });
 }
 
 /* Elenco «Aggiornamenti software» (A4, stesso stile del rapporto: Helvetica, riquadri a filo) */
