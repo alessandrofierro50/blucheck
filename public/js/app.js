@@ -217,7 +217,7 @@ const AIUTI = {
       ["Registratori e abbonamento", "Nella scheda del cliente indichi per ogni registratore se lavora col software (e quale: è quello coperto dall'abbonamento) o se è usato solo come cassa. Se i canoni pagati bastano per tutti i registratori, il collegamento si fa da solo all'import degli abbonamenti o dei QR."],
       ["Abbonamento da rinnovare", "Clienti che hanno pagato l'abbonamento software negli anni passati ma non ancora per l'anno in corso."],
       ["Esporta TXT / PDF", "L'elenco con i filtri e la ricerca attivi, da stampare o mandare."],
-      ["Per Ital Retail", "Elenco delle matricole col software che non si può aggiornare (clienti «non installabile»), con solo matricola, software e motivazione, per chiedere a Ital Retail di non rinnovare il Basic Support. Il nome del cliente non compare. Esclusi i registratori «solo cassa» e quelli senza matricola."],
+      ["Per Ital Retail", "Elenco delle matricole col software che non si può aggiornare (clienti «non installabile»), con solo matricola, software e motivazione, per chiedere a Ital Retail di non rinnovare il Basic Support. Il nome del cliente non compare. Ci sono tutti i clienti «non installabile»: chi non ha ancora la matricola esce con «DA COMPLETARE»; i registratori «solo cassa» no."],
     ],
     consiglio: "Per far comparire un cliente qui, apri la sua scheda in Clienti e rispondi «Sì» a «Usa un software gestionale?».",
   },
@@ -402,6 +402,8 @@ function viewAggiornamenti() {
   return `<div class="spread"><h2>Aggiornamenti software <span class="faint">(${tutti.length})</span></h2>
     <div class="row"><button class="btn sm" data-act="agg-txt">Esporta TXT</button><button class="btn sm" data-act="agg-pdf">Esporta PDF</button>${n("non_installabile") ? `<button class="btn sm" data-act="ital-pdf" title="Matricole con software non aggiornabile, per chiedere a Ital Retail di non rinnovare il Basic Support">Per Ital Retail (PDF)</button><button class="btn sm" data-act="ital-csv">Per Ital Retail (Excel)</button>` : ""}</div></div>
   <div class="stats">${stat("tutti", "", tutti.length, "Con gestionale")}${stat("da_fare", "warn", n("da_fare"), "Da fare")}${stat("aggiornato", "okk", n("aggiornato"), "Aggiornati")}${stat("non_installabile", "bad", n("non_installabile"), "Non installabili")}${(() => { const k = S.clienti.filter(usaGestionale).filter(daRinnovare).length; return k || UI.fg === "da_rinnovare" ? stat("da_rinnovare", "warn", k, `Abbonamento ${annoAbb()} da rinnovare`) : ""; })()}${(() => { const k = S.clienti.filter(usaGestionale).filter((c) => rtDaAbbinare(c) || rtTroppi(c)).length; return k || UI.fg === "rt_abb" ? stat("rt_abb", "warn", k, "Registratori da abbinare all'abbonamento") : ""; })()}</div>
+  ${(() => { if (!n("non_installabile")) return ""; const { esclusi } = righeItalRetail(); return esclusi.length ? `<div class="banner" style="flex-direction:column;align-items:stretch"><span><b>Matricola da completare per Ital Retail (${esclusi.length}):</b> clienti non aggiornabili che nell'elenco escono con «DA COMPLETARE». Aggiungi la matricola (anche con «Importa QR da file») o controlla i registratori nella scheda.</span>
+    <span>${esclusi.map((e) => `<a href="#" data-act="open-agg" data-id="${e.c.id}">${esc(e.c.ragione)}</a> <span class="faint">(${esc(e.perche)})</span>`).join("<br>")}</span></div>` : ""; })()}
   ${senza ? `<p class="faint" style="margin:0">${senza} ${senza === 1 ? "cliente non ha" : "clienti non hanno"} ancora la risposta a «Usa un software gestionale?»: si indica nella scheda del cliente.</p>` : ""}
   <input type="search" id="qAgg" placeholder="Cerca cliente, P.IVA, matricola, software, note…" value="${esc(UI.qg)}" data-bind="qg">
   ${rows.length ? `<div class="list">${rows.map(({ c, st, rt }) => `<button class="item" data-act="open-agg" data-id="${c.id}"><span class="stripe ${st.cls}"></span>
@@ -482,21 +484,28 @@ function exportAggTxt() {
    per chiedere di non rinnovare il Basic Support. Registratori «solo cassa» esclusi (non hanno software); senza matricola non si possono
    indicare: si contano e si avvisa. Escono solo matricola, software e motivo: niente nome o P.IVA del cliente, niente note interne. Non dipende dai filtri della sezione. */
 function righeItalRetail() {
-  const out = [], senza = [];
+  const out = [], senza = [], esclusi = [];
   for (const c of S.clienti.filter(usaGestionale)) {
     if (c.aggSw?.stato !== "non_installabile") continue;
     const motivo = MOTIVI_AGG[c.aggSw.motivo] || "Motivo non indicato";
-    for (const a of rtCli(c).filter((x) => x.abbSw !== false)) {
-      if (!a.matricola) { senza.push(c.ragione); continue; }
-      out.push({ matricola: a.matricola, software: a.software || c.software || "", motivo });
+    const rts = rtCli(c), conSw = rts.filter((x) => x.abbSw !== false);
+    if (!rts.length) esclusi.push({ c, perche: "nessun registratore in BluCheck" });
+    else if (!conSw.length) esclusi.push({ c, perche: "registratori segnati «solo cassa»" });
+    const nSenza = conSw.filter((a) => !a.matricola).length;
+    if (nSenza) esclusi.push({ c, perche: nSenza === 1 ? "registratore senza matricola" : `${nSenza} registratori senza matricola` });
+    // tutti i clienti «non installabile» escono nell'elenco: senza matricola (o senza registratori col software) con «DA COMPLETARE»
+    for (const a of conSw) {
+      if (!a.matricola) senza.push(c.ragione);
+      out.push({ matricola: a.matricola || "DA COMPLETARE", software: a.software || c.software || "", motivo });
     }
+    if (!conSw.length) out.push({ matricola: "DA COMPLETARE", software: c.software || "", motivo });
   }
-  out.sort((x, y) => x.matricola.localeCompare(y.matricola));
-  return { righe: out, senza: [...new Set(senza)] };
+  out.sort((x, y) => (x.matricola === "DA COMPLETARE") - (y.matricola === "DA COMPLETARE") || x.matricola.localeCompare(y.matricola));
+  return { righe: out, senza: [...new Set(senza)], esclusi };
 }
 function exportItalRetail(tipo) {
-  const { righe, senza } = righeItalRetail();
-  if (!righe.length) return toast(senza.length ? "I registratori dei clienti non aggiornabili non hanno ancora la matricola." : "Nessun registratore con software non aggiornabile.");
+  const { righe, senza, esclusi } = righeItalRetail();
+  if (!righe.length) return toast("Nessun cliente segnato «Non installabile».");
   if (tipo === "pdf") {
     if (!window.jspdf) return toast("Modulo PDF non caricato: ricarica la pagina.");
     scaricaFile(`Ital_Retail_non_rinnovo_Basic_Support_${todayISO()}.pdf`, pdfItalRetail(righe, lab()).output("blob"));
@@ -505,7 +514,8 @@ function exportItalRetail(tipo) {
     const csv = [["Matricola", "Software", "Motivazione"].map(q).join(";"), ...righe.map((r) => [r.matricola, r.software, r.motivo].map(q).join(";"))].join("\r\n");
     scaricaFile(`Ital_Retail_non_rinnovo_Basic_Support_${todayISO()}.csv`, new Blob(["\ufeff" + csv + "\r\n"], { type: "text/csv;charset=utf-8" }));
   }
-  toast(`${righe.length} matricole esportate${senza.length ? `; ${senza.length} ${senza.length === 1 ? "cliente ha" : "clienti hanno"} registratori senza matricola, non inclusi` : ""}`);
+  const dc = righe.filter((r) => r.matricola === "DA COMPLETARE").length;
+  toast(`${righe.length} righe esportate${dc ? `; ${dc} con la matricola da completare (elenco in alto)` : ""}`);
 }
 function exportAggPdf() {
   if (!window.jspdf) return toast("Modulo PDF non caricato: ricarica la pagina.");
