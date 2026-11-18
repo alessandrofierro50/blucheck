@@ -45,3 +45,8 @@ Questo software fa parte del progetto BluCode Informatica. La memoria condivisa 
       con `conferma: true` fa prima `db.backup` in `data/backup/blucheck-prima-import-*.db`, poi una transazione. Clienti con la stessa ragione sociale
       (normalizzata) si saltano. Ogni cliente riceve un apparecchio senza modello/matricola («Registratore da completare») con `ultimaVerifica`.
       I file con i dati dei clienti NON vanno nel repository (è pubblico). Prova: `test/storico.mjs`.
+- [x] Aggiornamenti software (2026-11-18): in anagrafica cliente «Usa un software gestionale?» (`gestionale`: si/no/'') e «Quale software»
+      (`software`); sezione «Aggiornamenti» (`viewAggiornamenti`, scheda `sheetAgg` in `public/js/app.js`) con i clienti che hanno `gestionale = si`
+      e lo stato in `aggSw` = { stato: aggiornato | non_installabile | '', motivo: hardware | non_paga (obbligatorio se non installabile), data, note, da }.
+      Filtri da fare/aggiornati/non installabili, ricerca, export TXT (`exportAggTxt`) e PDF A4 (`pdfAggiornamenti` in `public/js/pdf.js`) con i filtri attivi.
+      Nessuna modifica al database: i clienti sono documenti JSON in `dati` e i campi nuovi si aggiungono e basta.

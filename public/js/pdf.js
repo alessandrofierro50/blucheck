@@ -182,3 +182,44 @@ function pdfThermal(v, firmaU, firmaT) {
   const tmp = new jsPDF({ unit: "mm", format: [80, 2000] }); const h = run(tmp);
   const d = new jsPDF({ unit: "mm", format: [80, Math.max(100, Math.ceil(h))] }); run(d); return d;
 }
+
+/* Elenco «Aggiornamenti software» (A4, stesso stile del rapporto: Helvetica, riquadri a filo) */
+function pdfAggiornamenti(rows, L, titolo) {
+  const { jsPDF } = window.jspdf; const d = new jsPDF({ unit: "mm", format: "a4" });
+  const M = 12, W = 210 - 2 * M, X = M; let y = M;
+  const txt = (s, x, yy, w, fs = 8, st = "normal", align = "left") => { d.setFont("helvetica", st); d.setFontSize(fs); const lines = d.splitTextToSize(clean(s), w); d.text(lines, align === "center" ? x + w / 2 : x, yy + LH(fs) * 0.8, { align }); return lines.length * LH(fs); };
+  const meas = (s, w, fs = 8, st = "normal") => { d.setFont("helvetica", st); d.setFontSize(fs); return d.splitTextToSize(clean(s), w).length * LH(fs); };
+  d.setLineWidth(0.2); d.setDrawColor(40);
+  const lw = 62, tw = W - lw;
+  const labTxt = [L.ragione, L.indirizzo, L.cap, L.piva ? "P.I. " + L.piva : "", L.telefono ? "Tel. " + L.telefono : ""].filter(Boolean).join("\n");
+  const sub = `Situazione al ${fmtD(todayISO())} - ${rows.length} ${rows.length === 1 ? "cliente" : "clienti"}`;
+  const hh = Math.max(meas(labTxt, lw - 4, 9, "bold"), meas(titolo.toUpperCase(), tw - 4, 10.5, "bold") + LH(8) + 2) + 6;
+  d.rect(X, y, lw, hh); d.rect(X + lw, y, tw, hh);
+  txt(labTxt, X + 2, y + 3, lw - 4, 9, "bold");
+  const th = txt(titolo.toUpperCase(), X + lw + 2, y + 3, tw - 4, 10.5, "bold", "center");
+  txt(sub, X + lw + 2, y + 4 + th, tw - 4, 8, "normal", "center");
+  y += hh + 4;
+  const cols = [["Cliente", 60], ["Software", 32], ["Stato", 26], ["Data", 18], ["Motivo / note", W - 136]];
+  const header = () => { let x = X; for (const [l, w] of cols) { d.setFillColor(235); d.rect(x, y, w, 7, "FD"); txt(l, x + 1.5, y + 1.6, w - 3, 8, "bold"); x += w; } y += 7; };
+  header();
+  if (!rows.length) { d.rect(X, y, W, 8); txt("Nessun cliente.", X + 2, y + 2, W - 4, 8.5); y += 8; }
+  for (const { c, st } of rows) {
+    const a = c.aggSw || {};
+    const cells = [
+      [[c.ragione || "", "bold", 8.5], [[c.piva ? "P.IVA " + c.piva : "", c.telefono ? "Tel. " + c.telefono : ""].filter(Boolean).join(" - "), "normal", 7.5]],
+      [[c.software || "non indicato", "normal", 8]],
+      [[st.txt, "bold", 8]],
+      [[st.k === "da_fare" ? "" : fmtD(a.data), "normal", 8]],
+      [[[st.k === "non_installabile" ? st.det : "", st.k === "aggiornato" && a.da ? "Da " + a.da : "", a.note || ""].filter(Boolean).join(". "), "normal", 7.5]],
+    ];
+    const hs = cells.map((parts, i) => parts.reduce((h, [s, stl, fs]) => h + (s ? meas(s, cols[i][1] - 3, fs, stl) : 0), 0));
+    const h = Math.max(7, Math.max(...hs) + 3);
+    if (y + h > 297 - M) { d.addPage(); y = M; header(); }
+    let x = X;
+    cells.forEach((parts, i) => { const w = cols[i][1]; d.rect(x, y, w, h); let yy = y + 1.4; for (const [s, stl, fs] of parts) if (s) yy += txt(s, x + 1.5, yy, w - 3, fs, stl); x += w; });
+    y += h;
+  }
+  const n = d.getNumberOfPages();
+  for (let i = 1; i <= n; i++) { d.setPage(i); d.setFont("helvetica", "normal"); d.setFontSize(7); d.setTextColor(110); d.text(`BluCheck - pagina ${i} di ${n}`, 210 - M, 297 - 6, { align: "right" }); d.setTextColor(0); }
+  return d;
+}

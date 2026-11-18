@@ -7,8 +7,8 @@ const S = {
   clienti: [], apparecchi: [], verifiche: [], firmaTecnico: "",
   lastSync: null, loaded: false,
 };
-const UI = { tab: "scadenze", filtro: "tutte", tipo: "tutti", q: "", qa: "", qc: "", qv: "", sheet: null, form: null, confirm: null, set: null };
-const VALID_TABS = ["scadenze", "apparecchi", "clienti", "verifiche", "impostazioni"];
+const UI = { tab: "scadenze", filtro: "tutte", tipo: "tutti", q: "", qa: "", qc: "", qv: "", qg: "", fg: "tutti", sheet: null, form: null, confirm: null, set: null };
+const VALID_TABS = ["scadenze", "apparecchi", "clienti", "aggiornamenti", "verifiche", "impostazioni"];
 let vaiAbb = false;
 const isAdmin = () => S.me?.ruolo === "admin";
 const readonly = () => S.abb?.accesso === "lettura";
@@ -189,9 +189,21 @@ const AIUTI = {
       ["Ragione sociale e P.IVA", "Finiscono sul rapporto di verificazione e sulla dichiarazione."],
       ["Sede", "Dove sta l'apparecchio: serve al tecnico per arrivarci."],
       ["Telefono", "Per avvisare quando la verificazione sta per scadere."],
+      ["Software gestionale", "Se il cliente usa un gestionale e quale: chi risponde «Sì» compare nella sezione Aggiornamenti."],
       ["Cliente cessato", "L'attività ha chiuso o non è più vostro cliente: i suoi registratori escono per sempre dalle scadenze."],
       ["Verificato", "Spuntalo dopo il controllo iniziale del cliente: aggiornamenti del registratore, verificazione periodica e, sui DTR, scheda di memoria (DGFE) annuale. Resta la data del controllo."],
     ],
+  },
+  aggiornamenti: {
+    titolo: "Aggiornamenti software",
+    serve: "I clienti che usano un software gestionale e a che punto sono con gli aggiornamenti.",
+    campi: [
+      ["Da fare", "Clienti col gestionale per cui non è ancora segnato nulla: sono quelli da visitare."],
+      ["Aggiornato", "Si è passati dal cliente e gli aggiornamenti sono installati: resta la data e chi l'ha fatto."],
+      ["Non installabile", "Gli aggiornamenti non si possono mettere: va indicato il motivo, hardware troppo vecchio o cliente non disposto a pagarli."],
+      ["Esporta TXT / PDF", "L'elenco con i filtri e la ricerca attivi, da stampare o mandare."],
+    ],
+    consiglio: "Per far comparire un cliente qui, apri la sua scheda in Clienti e rispondi «Sì» a «Usa un software gestionale?».",
   },
   verifiche: {
     titolo: "Rapporti di verificazione",
@@ -243,11 +255,11 @@ function render(fromSync) {
   if (fromSync && UI.tab === "impostazioni") { renderBar(); return; }
   const active = document.activeElement, aid = active?.id, pos = active?.selectionStart;
   let html = banners();
-  html += ({ scadenze: viewScadenze, apparecchi: viewApparecchi, clienti: viewClienti, verifiche: viewVerifiche, impostazioni: viewImpostazioni })[UI.tab]();
+  html += ({ scadenze: viewScadenze, apparecchi: viewApparecchi, clienti: viewClienti, aggiornamenti: viewAggiornamenti, verifiche: viewVerifiche, impostazioni: viewImpostazioni })[UI.tab]();
   m.innerHTML = html;
   if (aid) { const el = document.getElementById(aid); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch { } } }
   renderBar();
-  if (fromSync) { if (UI.sheet && !["app-edit", "cli-edit"].includes(UI.sheet.kind)) renderSheet(); } else renderSheet();
+  if (fromSync) { if (UI.sheet && !["app-edit", "cli-edit", "agg"].includes(UI.sheet.kind)) renderSheet(); } else renderSheet();
   if (UI.tab === "impostazioni" && isAdmin()) { if (UI.set) { paintTecnici(); paintAbb(); } loadImpostazioni().then(() => { if (vaiAbb) { vaiAbb = false; $("#abbPanel")?.scrollIntoView({ behavior: "smooth" }); } }); }
 }
 function banners() {
@@ -320,6 +332,92 @@ function viewClienti() {
     <span class="s">P.IVA <span class="mono">${esc(c.piva || "—")}</span>${c.telefono ? " · " + esc(c.telefono) : ""}</span></span><span class="when"><span class="pill n">${n} RT</span></span></button>`;
   }).join("")}</div>` : `<div class="list"><div class="empty">Nessun cliente trovato.</div></div>`}`;
 }
+/* ---------- aggiornamenti software ---------- */
+const MOTIVI_AGG = { hardware: "Hardware troppo vecchio", non_paga: "Cliente non disposto a pagare gli aggiornamenti" };
+const usaGestionale = (c) => c.gestionale === "si" && !c.cessato; // i cessati escono anche da qui
+function statoAgg(c) {
+  const a = c.aggSw || {};
+  if (a.stato === "aggiornato") return { k: "aggiornato", cls: "ok", txt: "Aggiornato", det: `il ${fmtD(a.data)}${a.da ? " · " + a.da : ""}` };
+  if (a.stato === "non_installabile") return { k: "non_installabile", cls: "bad", txt: "Non installabile", det: MOTIVI_AGG[a.motivo] || "Motivo non indicato" };
+  return { k: "da_fare", cls: "warn", txt: "Da fare", det: "" };
+}
+function righeAggiornamenti() {
+  const q = norm(UI.qg);
+  return S.clienti.filter(usaGestionale).map((c) => ({ c, st: statoAgg(c) }))
+    .filter((r) => UI.fg === "tutti" || r.st.k === UI.fg)
+    .filter((r) => !q || norm([r.c.ragione, r.c.piva, r.c.domicilio, r.c.telefono, r.c.software, r.c.aggSw?.note].join(" ")).includes(q))
+    .sort((x, y) => norm(x.c.ragione).localeCompare(norm(y.c.ragione)));
+}
+function viewAggiornamenti() {
+  const tutti = S.clienti.filter(usaGestionale).map(statoAgg);
+  const n = (k) => tutti.filter((s) => s.k === k).length;
+  const stat = (k, cls, num, l) => `<button class="stat ${cls} ${UI.fg === k ? "sel" : ""}" data-act="agg-filtro" data-v="${UI.fg === k ? "tutti" : k}"><b>${num}</b><span class="faint">${l}</span></button>`;
+  const rows = righeAggiornamenti();
+  const senza = S.clienti.filter((c) => !c.gestionale).length;
+  return `<div class="spread"><h2>Aggiornamenti software <span class="faint">(${tutti.length})</span></h2>
+    <div class="row"><button class="btn sm" data-act="agg-txt">Esporta TXT</button><button class="btn sm" data-act="agg-pdf">Esporta PDF</button></div></div>
+  <div class="stats">${stat("tutti", "", tutti.length, "Con gestionale")}${stat("da_fare", "warn", n("da_fare"), "Da fare")}${stat("aggiornato", "okk", n("aggiornato"), "Aggiornati")}${stat("non_installabile", "bad", n("non_installabile"), "Non installabili")}</div>
+  ${senza ? `<p class="faint" style="margin:0">${senza} ${senza === 1 ? "cliente non ha" : "clienti non hanno"} ancora la risposta a «Usa un software gestionale?»: si indica nella scheda del cliente.</p>` : ""}
+  <input type="search" id="qAgg" placeholder="Cerca cliente, P.IVA, software, note…" value="${esc(UI.qg)}" data-bind="qg">
+  ${rows.length ? `<div class="list">${rows.map(({ c, st }) => `<button class="item" data-act="open-agg" data-id="${c.id}"><span class="stripe ${st.cls}"></span>
+    <span style="min-width:0"><span class="t">${esc(c.ragione)}</span><br><span class="s">${c.software ? `<span class="tag">${esc(c.software)}</span>` : ""}${esc(st.det || (c.telefono ? c.telefono : ""))}</span></span>
+    <span class="when"><span class="pill ${st.cls}">${st.txt}</span></span></button>`).join("")}</div>`
+    : `<div class="list"><div class="empty">${tutti.length ? "Nessun cliente con questi filtri." : `<b>Nessun cliente con software gestionale.</b><span>Nella scheda del cliente rispondi «Sì» a «Usa un software gestionale?» e indica quale.</span>`}</div></div>`}`;
+}
+function sheetAgg() {
+  const c = cliente(UI.sheet.id); if (!c) return head("Aggiornamenti") + `<div class="sheet-body gut"><p>Cliente non trovato.</p></div>`;
+  const d = UI.sheet.draft, st = statoAgg(c);
+  const b = (act, v, cur, l) => `<button data-act="${act}" data-v="${v}" aria-pressed="${cur === v}">${l}</button>`;
+  return head(esc(c.ragione), `<button class="btn sm" data-act="open-cli" data-id="${c.id}">Scheda cliente</button>`) + `<div class="sheet-body gut">
+    <div class="panel"><dl class="kv"><dt>Software</dt><dd>${esc(c.software || "Non indicato")}</dd><dt>Telefono</dt><dd>${esc(c.telefono || "—")}</dd><dt>Domicilio</dt><dd>${esc(c.domicilio || "—")}</dd>
+      <dt>Stato attuale</dt><dd><span class="pill ${st.cls}">${st.txt}</span> ${esc(st.det)}</dd></dl></div>
+    <div class="panel"><h2>Aggiornamenti</h2>
+      <div class="field"><span>Esito</span><div class="seg wide choose" role="group">${b("agg-stato", "aggiornato", d.stato, "Aggiornato")}${b("agg-stato", "non_installabile", d.stato, "Non installabile")}</div></div>
+      ${d.stato === "non_installabile" ? `<div class="field"><span>Perché non si possono installare</span><div class="seg wide choose" role="group">${b("agg-motivo", "hardware", d.motivo, "Hardware troppo vecchio")}${b("agg-motivo", "non_paga", d.motivo, "Il cliente non vuole pagarli")}</div></div>` : ""}
+      ${d.stato ? `<label class="field"><span>${d.stato === "aggiornato" ? "Data dell'installazione" : "Data"}</span><input type="date" id="ag_data" data-ag="data" value="${esc(d.data || "")}"></label>` : ""}
+      <label class="field"><span>Note</span><textarea id="ag_note" data-ag="note" placeholder="Versione installata, cosa manca, cosa ha detto il cliente…">${esc(d.note || "")}</textarea></label>
+    </div>
+    <div class="row"><button class="btn primary" data-act="save-agg">Salva</button>${c.aggSw?.stato ? `<button class="btn" data-act="agg-reset">Riporta a «da fare»</button>` : ""}<button class="btn ghost" data-act="close">Annulla</button></div>
+  </div>`;
+}
+async function saveAgg(reset) {
+  if (!guardWrite()) return;
+  const s = UI.sheet, c = cliente(s.id); if (!c) return;
+  const d = s.draft;
+  let aggSw;
+  if (reset) aggSw = { stato: "", note: d.note || "" };
+  else {
+    if (!d.stato) return toast("Scegli «Aggiornato» o «Non installabile».");
+    if (d.stato === "non_installabile" && !MOTIVI_AGG[d.motivo]) return toast("Indica perché non si possono installare gli aggiornamenti.");
+    aggSw = { stato: d.stato, motivo: d.stato === "non_installabile" ? d.motivo : "", data: d.data || todayISO(), note: (d.note || "").trim(), da: S.me?.nome || S.me?.email || "", aggiornatoIl: new Date().toISOString() };
+  }
+  try { await put("clienti", c.id, { ...c, aggSw }); toast(reset ? "Riportato a «da fare»" : "Aggiornamenti salvati"); closeSheet(); render(); } catch (err) { apiError(err); }
+}
+function aggTitolo() {
+  const f = { tutti: "", da_fare: " - da fare", aggiornato: " - aggiornati", non_installabile: " - non installabili" }[UI.fg] || "";
+  return `Aggiornamenti software${f}${UI.qg ? ` (ricerca: ${UI.qg})` : ""}`;
+}
+function exportAggTxt() {
+  const rows = righeAggiornamenti(), L = lab();
+  const out = [L.ragione || "", aggTitolo().toUpperCase(), `Al ${fmtD(todayISO())} - ${rows.length} clienti`, ""];
+  for (const { c, st } of rows) {
+    out.push("-".repeat(60), c.ragione || "");
+    if (c.piva) out.push(`P.IVA: ${c.piva}`);
+    if (c.domicilio) out.push(`Domicilio: ${c.domicilio}`);
+    if (c.telefono) out.push(`Telefono: ${c.telefono}`);
+    out.push(`Software: ${c.software || "non indicato"}`);
+    out.push(`Stato: ${st.txt}${st.k === "aggiornato" ? ` il ${fmtD(c.aggSw.data)}${c.aggSw.da ? " (" + c.aggSw.da + ")" : ""}` : ""}${st.k === "non_installabile" ? ` - motivo: ${st.det}${c.aggSw.data ? " (" + fmtD(c.aggSw.data) + ")" : ""}` : ""}`);
+    if (c.aggSw?.note) out.push(`Note: ${c.aggSw.note}`);
+  }
+  out.push("-".repeat(60));
+  scaricaFile(`Aggiornamenti_software_${todayISO()}.txt`, new Blob(["\ufeff" + out.join("\r\n") + "\r\n"], { type: "text/plain;charset=utf-8" }));
+}
+function exportAggPdf() {
+  if (!window.jspdf) return toast("Modulo PDF non caricato: ricarica la pagina.");
+  const doc = pdfAggiornamenti(righeAggiornamenti(), lab(), aggTitolo());
+  scaricaFile(`Aggiornamenti_software_${todayISO()}.pdf`, doc.output("blob"));
+}
+
 function viewVerifiche() {
   const q = norm(UI.qv);
   const list = S.verifiche.filter((v) => !q || norm([v.numero, v.cli?.ragione, v.app?.matricola, v.app?.modello, v.tecnico?.nome].join(" ")).includes(q)).sort((x, y) => ((y.data || "") + (y.oraInizio || "")).localeCompare((x.data || "") + (x.oraInizio || "")));
@@ -532,7 +630,7 @@ function renderSheet() {
   if ((s.kind === "app-edit" || s.kind === "cli-edit") && root.dataset.k === key && root.innerHTML) { refreshSheetDyn(); return; }
   const keep = root.dataset.k === key ? ($(".sheet", root)?.scrollTop || 0) : 0;
   root.dataset.k = key;
-  const body = ({ app: sheetApp, "app-edit": sheetAppEdit, cli: sheetCli, "cli-edit": sheetCliEdit, ver: sheetVer })[s.kind]();
+  const body = ({ app: sheetApp, "app-edit": sheetAppEdit, cli: sheetCli, "cli-edit": sheetCliEdit, ver: sheetVer, agg: sheetAgg })[s.kind]();
   root.innerHTML = `<div class="sheet-wrap" data-act="sheet-bg"><div class="sheet" role="dialog" aria-modal="true">${body}</div></div>`;
   if (keep) $(".sheet", root).scrollTop = keep;
   document.body.style.overflow = "hidden";
@@ -632,7 +730,9 @@ function sheetCli() {
     ${c.cessato ? `<div class="banner"><span><b>Cliente cessato:</b> i suoi registratori non compaiono più nelle scadenze.</span></div>` : ""}
     ${c.verificato ? `<div class="banner ok"><span><b>Verificato${c.verificatoIl ? ` il ${fmtD(c.verificatoIl)}` : ""}:</b> controllo iniziale fatto (aggiornamenti, verificazione periodica, DGFE).</span></div>` : c.importato && !c.cessato ? `<div class="banner info"><span><b>Da verificare:</b> cliente preso dallo storico. Controlla aggiornamenti, verificazione periodica e DGFE (annuale sui DTR), poi spunta «Verificato».</span></div>` : ""}
     <div class="panel"><dl class="kv"><dt>P.IVA</dt><dd class="mono">${esc(c.piva || "—")}</dd><dt>Domicilio</dt><dd>${esc(c.domicilio || "—")}</dd>
-      <dt>Telefono</dt><dd>${esc(c.telefono || "—")}</dd><dt>Email</dt><dd>${esc(c.email || "—")}</dd><dt>Referente</dt><dd>${esc(c.referente || "—")}</dd><dt>Note</dt><dd style="white-space:pre-line">${esc(c.note || "—")}</dd></dl></div>
+      <dt>Telefono</dt><dd>${esc(c.telefono || "—")}</dd><dt>Email</dt><dd>${esc(c.email || "—")}</dd><dt>Referente</dt><dd>${esc(c.referente || "—")}</dd>
+      <dt>Gestionale</dt><dd>${c.gestionale === "si" ? `Sì${c.software ? " · " + esc(c.software) : ""} · <a href="#" data-act="open-agg" data-id="${c.id}">aggiornamenti: ${statoAgg(c).txt.toLowerCase()}</a>` : c.gestionale === "no" ? "No" : "Non indicato"}</dd>
+      <dt>Note</dt><dd style="white-space:pre-line">${esc(c.note || "—")}</dd></dl></div>
     ${sv.length ? `<div class="panel"><h2>Verificazioni precedenti (storico)</h2><p class="faint" style="margin:0">${sv.map((d) => `<span class="mono">${fmtD(d)}</span>`).join(" · ")}</p></div>` : ""}
     <div class="panel"><div class="spread"><h2>Registratori</h2><button class="btn sm" data-act="new-app" data-cli="${c.id}">+ Apparecchio</button></div>
       ${apps.length ? `<div class="list">${apps.map((a) => `<button class="item" data-act="open-app" data-id="${a.id}"><span class="stripe"></span><span><span class="t">${esc(a.modello || "Registratore da completare")}</span><br><span class="s mono">${esc(a.matricola)}</span></span><span class="when">${scadenze(a).map((s) => `<span class="faint"><span class="tag">${s.tipo}</span>${fmtD(s.data)}</span>`).join("")}</span></button>`).join("")}</div>` : `<p class="faint">Nessun registratore.</p>`}</div>
@@ -643,6 +743,8 @@ function sheetCliEdit() {
   const c = UI.sheet.draft; const f = (k, l, t = "text") => `<label class="field"><span>${l}</span><input type="${t}" id="ce_${k}" data-ce="${k}" value="${esc(c[k] ?? "")}"></label>`;
   return head(UI.sheet.id ? "Modifica cliente" : "Nuovo cliente") + `<div class="sheet-body gut"><div class="panel">
     <div class="grid2">${f("ragione", "Ragione sociale")}${f("piva", "Partita IVA")}${f("domicilio", "Domicilio / Residenza")}${f("telefono", "Telefono", "tel")}${f("email", "Email", "email")}${f("referente", "Referente (nome, qualifica)")}</div>
+    <div class="grid2"><label class="field"><span>Usa un software gestionale?</span><select id="ce_gestionale" data-ce="gestionale">${[["", "— Non indicato —"], ["si", "Sì"], ["no", "No"]].map(([v, l]) => `<option value="${v}" ${(c.gestionale || "") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+      <label class="field" id="ceSwBox" ${c.gestionale === "si" ? "" : "hidden"}><span>Quale software gestionale</span><input type="text" id="ce_software" data-ce="software" value="${esc(c.software ?? "")}" placeholder="Nome del programma"></label></div>
     <label class="field"><span>Note</span><textarea id="ce_note" data-ce="note">${esc(c.note || "")}</textarea></label>
     <label class="check"><input type="checkbox" id="ce_cessato" data-ce="cessato" ${c.cessato ? "checked" : ""}> Cliente cessato (non va più in scadenza)</label>
     <label class="check"><input type="checkbox" id="ce_verificato" data-ce="verificato" ${c.verificato ? "checked" : ""}> Verificato: controllo iniziale fatto (aggiornamenti, verificazione periodica, DGFE annuale sui DTR)</label></div>
@@ -1027,6 +1129,14 @@ document.addEventListener("click", async (e) => {
     case "open-app": openSheet({ kind: "app", id }); break;
     case "open-cli": openSheet({ kind: "cli", id }); break;
     case "open-ver": openSheet({ kind: "ver", id }); break;
+    case "open-agg": { const c = cliente(id); if (c) openSheet({ kind: "agg", id, draft: { stato: c.aggSw?.stato || "", motivo: c.aggSw?.motivo || "", data: c.aggSw?.data || todayISO(), note: c.aggSw?.note || "" } }); break; }
+    case "agg-stato": UI.sheet.draft.stato = el.dataset.v; renderSheet(); break;
+    case "agg-motivo": UI.sheet.draft.motivo = el.dataset.v; renderSheet(); break;
+    case "save-agg": await saveAgg(false); break;
+    case "agg-reset": await saveAgg(true); break;
+    case "agg-filtro": UI.fg = el.dataset.v; render(); break;
+    case "agg-txt": exportAggTxt(); break;
+    case "agg-pdf": exportAggPdf(); break;
     case "new-app": if (!guardWrite()) break; openSheet({ kind: "app-edit", id: null, draft: { clienteId: el.dataset.cli || "", nuovoCliente: {} }, qr: null }); break;
     case "qr-new": if (!guardWrite()) break; openSheet({ kind: "app-edit", id: null, draft: { clienteId: "", nuovoCliente: {} }, qr: null }); scanQR("app"); break;
     case "edit-app": if (!guardWrite()) break; openSheet({ kind: "app-edit", id, draft: JSON.parse(JSON.stringify(apparecchio(id))), qr: null }); break;
@@ -1104,7 +1214,8 @@ document.addEventListener("input", (e) => {
     updateNextDates(); return;
   }
   if (t.dataset.aenc && UI.sheet?.draft) { (UI.sheet.draft.nuovoCliente ||= {})[t.dataset.aenc] = t.value; t.classList.remove("hl"); return; }
-  if (t.dataset.ce && UI.sheet?.draft) { UI.sheet.draft[t.dataset.ce] = t.type === "checkbox" ? t.checked : t.value; return; }
+  if (t.dataset.ce && UI.sheet?.draft) { UI.sheet.draft[t.dataset.ce] = t.type === "checkbox" ? t.checked : t.value; if (t.dataset.ce === "gestionale") $("#ceSwBox").hidden = t.value !== "si"; return; }
+  if (t.dataset.ag && UI.sheet?.draft) { UI.sheet.draft[t.dataset.ag] = t.value; return; }
 });
 document.addEventListener("change", (e) => { const t = e.target; if ((t.type === "checkbox" || t.tagName === "SELECT") && (t.dataset.f || t.dataset.fi || t.dataset.ae || t.dataset.ce)) t.dispatchEvent(new Event("input", { bubbles: true })); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && UI.sheet && !$("#padRoot").innerHTML) closeSheet(); });
