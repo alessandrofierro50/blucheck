@@ -441,7 +441,7 @@ function pdfAggiornamenti(rows, L, titolo) {
     const a = c.aggSw || {};
     const cells = [
       [[c.ragione || "", "bold", 8.5], [[c.piva ? "P.IVA " + c.piva : "", c.telefono ? "Tel. " + c.telefono : ""].filter(Boolean).join(" - "), "normal", 7.5]],
-      [[c.software || "non indicato", "normal", 8]],
+      [[c.software || "non indicato", "normal", 8], [Object.keys(c.abbSw || {}).filter((k) => c.abbSw[k]?.canoni > 0).sort().length ? "Abb. " + Object.keys(c.abbSw).filter((k) => c.abbSw[k]?.canoni > 0).sort().join(", ") : "", "normal", 7]],
       [[st.txt, "bold", 8]],
       [[st.k === "da_fare" ? "" : fmtD(a.data), "normal", 8]],
       [[[st.k === "non_installabile" ? st.det : "", st.k === "aggiornato" && a.da ? "Da " + a.da : "", a.note || ""].filter(Boolean).join(". "), "normal", 7.5]],

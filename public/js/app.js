@@ -213,6 +213,8 @@ const AIUTI = {
       ["Da fare", "Clienti col gestionale per cui non è ancora segnato nulla: sono quelli da visitare."],
       ["Aggiornato", "Si è passati dal cliente e gli aggiornamenti sono installati: resta la data e chi l'ha fatto."],
       ["Non installabile", "Gli aggiornamenti non si possono mettere: va indicato il motivo, hardware troppo vecchio o cliente non disposto a pagarli."],
+      ["Abb. 2025, Abb. 2026…", "Anni di abbonamento software pagati dal cliente (canone annuale), presi dalle vendite di BluGest con Impostazioni > «Importa abbonamenti software»."],
+      ["Abbonamento da rinnovare", "Clienti che hanno pagato l'abbonamento software negli anni passati ma non ancora per l'anno in corso."],
       ["Esporta TXT / PDF", "L'elenco con i filtri e la ricerca attivi, da stampare o mandare."],
     ],
     consiglio: "Per far comparire un cliente qui, apri la sua scheda in Clienti e rispondi «Sì» a «Usa un software gestionale?».",
@@ -236,6 +238,7 @@ const AIUTI = {
       ["Tecnici", "Chi entra e quanti ne prevede il tuo abbonamento."],
       ["Abbonamento", "Scadenza e rinnovo con carta, PayPal o bonifico."],
       ["Esporta dati", "Tutto l'archivio dell'azienda, da conservare o da portare altrove."],
+      ["Importa abbonamenti software", "Carica gli export CSV di BluGest (Vendite › Storico articolo, es. ABBITAL_2026): l'anno è quello del codice articolo, le note di credito stornano le fatture. Prima il riepilogo, poi la conferma con backup."],
       ["Stampa foto sulla termica", "Apre la pagina /foto: la foto si adatta alla larghezza della carta (80 mm = 576 punti), diventa bianco e nero adatto alla termica e si stampa via Bluetooth, USB/COM, RawBT o driver."],
     ],
   },
@@ -356,11 +359,26 @@ function statoAgg(c) {
   if (a.stato === "non_installabile") return { k: "non_installabile", cls: "bad", txt: "Non installabile", det: MOTIVI_AGG[a.motivo] || "Motivo non indicato" };
   return { k: "da_fare", cls: "warn", txt: "Da fare", det: "" };
 }
+// abbonamento software (canone annuale, es. articoli ABBITAL_<anno> di BluGest): anni pagati in c.abbSw, importati da Impostazioni
+const annoAbb = () => String(new Date().getFullYear());
+const anniAbb = (c) => Object.keys(c.abbSw || {}).filter((a) => c.abbSw[a]?.canoni > 0).sort();
+const daRinnovare = (c) => { const a = anniAbb(c), y = annoAbb(); return a.length > 0 && !a.includes(y) && a.some((x) => x < y); };
+const abbTags = (c) => anniAbb(c).map((a) => `<span class="tag" title="Abbonamento software ${a}">Abb. ${a}</span>`).join("");
+function panelAbbSw(c) {
+  const anni = anniAbb(c).reverse();
+  if (!anni.length) return "";
+  const y = annoAbb();
+  return `<div class="panel"><h2>Abbonamento software</h2>
+    ${daRinnovare(c) ? `<div class="banner"><span><b>Da rinnovare:</b> nessun canone per il ${y}.</span></div>` : ""}
+    <div style="overflow:auto"><table class="t"><thead><tr><th>Anno</th><th>Canoni</th><th>Importo</th><th>Documenti</th></tr></thead><tbody>
+    ${anni.map((a) => { const x = c.abbSw[a]; return `<tr><td class="mono">${a}</td><td>${x.canoni}</td><td class="mono">${euroAbb(x.importo)}</td>
+      <td>${(x.documenti || []).map((d) => `${esc(d.documento)}${d.data ? " del " + fmtD(d.data) : ""}`).join("<br>")}</td></tr>`; }).join("")}</tbody></table></div></div>`;
+}
 function righeAggiornamenti() {
   const q = norm(UI.qg);
   return S.clienti.filter(usaGestionale).map((c) => ({ c, st: statoAgg(c) }))
-    .filter((r) => UI.fg === "tutti" || r.st.k === UI.fg)
-    .filter((r) => !q || norm([r.c.ragione, r.c.piva, r.c.domicilio, r.c.telefono, r.c.software, r.c.aggSw?.note].join(" ")).includes(q))
+    .filter((r) => UI.fg === "tutti" || (UI.fg === "da_rinnovare" ? daRinnovare(r.c) : r.st.k === UI.fg))
+    .filter((r) => !q || norm([r.c.ragione, r.c.piva, r.c.domicilio, r.c.telefono, r.c.software, r.c.aggSw?.note, ...(r.c.nomiBlugest || [])].join(" ")).includes(q))
     .sort((x, y) => norm(x.c.ragione).localeCompare(norm(y.c.ragione)));
 }
 function viewAggiornamenti() {
@@ -371,11 +389,11 @@ function viewAggiornamenti() {
   const senza = S.clienti.filter((c) => !c.gestionale).length;
   return `<div class="spread"><h2>Aggiornamenti software <span class="faint">(${tutti.length})</span></h2>
     <div class="row"><button class="btn sm" data-act="agg-txt">Esporta TXT</button><button class="btn sm" data-act="agg-pdf">Esporta PDF</button></div></div>
-  <div class="stats">${stat("tutti", "", tutti.length, "Con gestionale")}${stat("da_fare", "warn", n("da_fare"), "Da fare")}${stat("aggiornato", "okk", n("aggiornato"), "Aggiornati")}${stat("non_installabile", "bad", n("non_installabile"), "Non installabili")}</div>
+  <div class="stats">${stat("tutti", "", tutti.length, "Con gestionale")}${stat("da_fare", "warn", n("da_fare"), "Da fare")}${stat("aggiornato", "okk", n("aggiornato"), "Aggiornati")}${stat("non_installabile", "bad", n("non_installabile"), "Non installabili")}${(() => { const k = S.clienti.filter(usaGestionale).filter(daRinnovare).length; return k || UI.fg === "da_rinnovare" ? stat("da_rinnovare", "warn", k, `Abbonamento ${annoAbb()} da rinnovare`) : ""; })()}</div>
   ${senza ? `<p class="faint" style="margin:0">${senza} ${senza === 1 ? "cliente non ha" : "clienti non hanno"} ancora la risposta a «Usa un software gestionale?»: si indica nella scheda del cliente.</p>` : ""}
   <input type="search" id="qAgg" placeholder="Cerca cliente, P.IVA, software, note…" value="${esc(UI.qg)}" data-bind="qg">
   ${rows.length ? `<div class="list">${rows.map(({ c, st }) => `<button class="item" data-act="open-agg" data-id="${c.id}"><span class="stripe ${st.cls}"></span>
-    <span style="min-width:0"><span class="t">${esc(c.ragione)}</span><br><span class="s">${c.software ? `<span class="tag">${esc(c.software)}</span>` : ""}${esc(st.det || (c.telefono ? c.telefono : ""))}</span></span>
+    <span style="min-width:0"><span class="t">${esc(c.ragione)}</span><br><span class="s">${c.software ? `<span class="tag">${esc(c.software)}</span>` : ""}${abbTags(c)}${esc(st.det || (c.telefono ? c.telefono : ""))}</span></span>
     <span class="when"><span class="pill ${st.cls}">${st.txt}</span></span></button>`).join("")}</div>`
     : `<div class="list"><div class="empty">${tutti.length ? "Nessun cliente con questi filtri." : `<b>Nessun cliente con software gestionale.</b><span>Nella scheda del cliente rispondi «Sì» a «Usa un software gestionale?» e indica quale.</span>`}</div></div>`}`;
 }
@@ -386,6 +404,7 @@ function sheetAgg() {
   return head(esc(c.ragione), `<button class="btn sm" data-act="open-cli" data-id="${c.id}">Scheda cliente</button>`) + `<div class="sheet-body gut">
     <div class="panel"><dl class="kv"><dt>Software</dt><dd>${esc(c.software || "Non indicato")}</dd><dt>Telefono</dt><dd>${esc(c.telefono || "—")}</dd><dt>Domicilio</dt><dd>${esc(c.domicilio || "—")}</dd>
       <dt>Stato attuale</dt><dd><span class="pill ${st.cls}">${st.txt}</span> ${esc(st.det)}</dd></dl></div>
+    ${panelAbbSw(c)}
     <div class="panel"><h2>Aggiornamenti</h2>
       <div class="field"><span>Esito</span><div class="seg wide choose" role="group">${b("agg-stato", "aggiornato", d.stato, "Aggiornato")}${b("agg-stato", "non_installabile", d.stato, "Non installabile")}</div></div>
       ${d.stato === "non_installabile" ? `<div class="field"><span>Perché non si possono installare</span><div class="seg wide choose" role="group">${b("agg-motivo", "hardware", d.motivo, "Hardware troppo vecchio")}${b("agg-motivo", "non_paga", d.motivo, "Il cliente non vuole pagarli")}</div></div>` : ""}
@@ -409,7 +428,7 @@ async function saveAgg(reset) {
   try { await put("clienti", c.id, { ...c, aggSw }); toast(reset ? "Riportato a «da fare»" : "Aggiornamenti salvati"); closeSheet(); render(); } catch (err) { apiError(err); }
 }
 function aggTitolo() {
-  const f = { tutti: "", da_fare: " - da fare", aggiornato: " - aggiornati", non_installabile: " - non installabili" }[UI.fg] || "";
+  const f = { tutti: "", da_fare: " - da fare", aggiornato: " - aggiornati", non_installabile: " - non installabili", da_rinnovare: ` - abbonamento ${annoAbb()} da rinnovare` }[UI.fg] || "";
   return `Aggiornamenti software${f}${UI.qg ? ` (ricerca: ${UI.qg})` : ""}`;
 }
 function exportAggTxt() {
@@ -421,6 +440,7 @@ function exportAggTxt() {
     if (c.domicilio) out.push(`Domicilio: ${c.domicilio}`);
     if (c.telefono) out.push(`Telefono: ${c.telefono}`);
     out.push(`Software: ${c.software || "non indicato"}`);
+    if (anniAbb(c).length) out.push(`Abbonamento software: ${anniAbb(c).join(", ")}${daRinnovare(c) ? ` (${annoAbb()} da rinnovare)` : ""}`);
     out.push(`Stato: ${st.txt}${st.k === "aggiornato" ? ` il ${fmtD(c.aggSw.data)}${c.aggSw.da ? " (" + c.aggSw.da + ")" : ""}` : ""}${st.k === "non_installabile" ? ` - motivo: ${st.det}${c.aggSw.data ? " (" + fmtD(c.aggSw.data) + ")" : ""}` : ""}`);
     if (c.aggSw?.note) out.push(`Note: ${c.aggSw.note}`);
   }
@@ -468,7 +488,9 @@ function viewImpostazioni() {
   <div class="panel"><h2>Esporta dati</h2><p class="faint" style="margin:0">Scarica tutto l'archivio della tua azienda (clienti, apparecchi, rapporti) per conservarlo o passarlo a un altro programma.</p>
     <div class="row"><button class="btn" data-act="backup">Scarica archivio (JSON)</button><button class="btn" data-act="csv-scad">Scadenze (CSV)</button></div></div>
   <div class="panel"><h2>Importa storico</h2><p class="faint" style="margin:0">Carica il file di storico preparato dall'assistenza (clienti con le verifiche fatte prima di BluCheck). Prima vedi il riepilogo, poi confermi; prima di scrivere il programma fa un backup.</p>
-    <div class="row"><input type="file" id="impFile" accept=".json,application/json"><button class="btn" data-act="imp-anteprima">Vedi riepilogo</button></div><div id="impBox"></div></div>`;
+    <div class="row"><input type="file" id="impFile" accept=".json,application/json"><button class="btn" data-act="imp-anteprima">Vedi riepilogo</button></div><div id="impBox"></div></div>
+  <div class="panel"><h2>Importa abbonamenti software</h2><p class="faint" style="margin:0">In BluGest apri Vendite › Storico articolo, scegli l'articolo del canone (es. ABBITAL_2026) ed esporta il CSV; fallo per ogni anno. Carica qui i file anche tutti insieme: l'anno è quello del codice articolo (dal nome del file), non quello della fattura. Le note di credito stornano le fatture. Ogni anno caricato sostituisce quello già in BluCheck. Prima vedi il riepilogo, poi confermi; prima di scrivere il programma fa un backup.</p>
+    <div class="row"><input type="file" id="abbFile" accept=".csv,text/csv,text/plain" multiple><button class="btn" data-act="abb-anteprima">Vedi riepilogo</button></div><div id="abbAnni"></div><div id="abbBox"></div></div>`;
   return h;
 }
 async function loadImpostazioni() {
@@ -754,6 +776,7 @@ function sheetCli() {
       <dt>Telefono</dt><dd>${esc(c.telefono || "—")}</dd><dt>Email</dt><dd>${esc(c.email || "—")}</dd><dt>Referente</dt><dd>${esc(c.referente || "—")}</dd>
       <dt>Gestionale</dt><dd>${c.gestionale === "si" ? `Sì${c.software ? " · " + esc(c.software) : ""} · <a href="#" data-act="open-agg" data-id="${c.id}">aggiornamenti: ${statoAgg(c).txt.toLowerCase()}</a>` : c.gestionale === "no" ? "No" : "Non indicato"}</dd>
       <dt>Note</dt><dd style="white-space:pre-line">${esc(c.note || "—")}</dd></dl></div>
+    ${panelAbbSw(c)}
     ${sv.length ? `<div class="panel"><h2>Verificazioni precedenti (storico)</h2><p class="faint" style="margin:0">${sv.map((d) => `<span class="mono">${fmtD(d)}</span>`).join(" · ")}</p></div>` : ""}
     <div class="panel"><div class="spread"><h2>Registratori</h2><button class="btn sm" data-act="new-app" data-cli="${c.id}">+ Apparecchio</button></div>
       ${apps.length ? `<div class="list">${apps.map((a) => `<button class="item" data-act="open-app" data-id="${a.id}"><span class="stripe"></span><span><span class="t">${esc(a.modello || "Registratore da completare")}</span><br><span class="s mono">${esc(a.matricola)}</span></span><span class="when">${scadenze(a).map((s) => `<span class="faint"><span class="tag">${s.tipo}</span>${fmtD(s.data)}</span>`).join("")}</span></button>`).join("")}</div>` : `<p class="faint">Nessun registratore.</p>`}</div>
@@ -1342,6 +1365,7 @@ document.addEventListener("click", async (e) => {
     case "copia": try { await navigator.clipboard.writeText(el.dataset.v); toast("Copiato"); } catch { toast(el.dataset.v, 6000); } break;
     case "csv-scad": exportCsv(); break;
     case "imp-anteprima": case "imp-conferma": await importaStorico(act === "imp-conferma"); break;
+    case "abb-anteprima": case "abb-conferma": await importaAbbonamenti(act === "abb-conferma"); break;
     case "imp-tutti-bc": case "imp-tutti-file": document.querySelectorAll(`#impBox input[data-disc][value="${act === "imp-tutti-file" ? "nuovo" : "attuale"}"]`).forEach((x) => { x.checked = true; }); break;
     case "backup": scaricaFile(`BluCheck_archivio_${todayISO()}.json`, new Blob([JSON.stringify({ app: "blucheck", esportato: new Date().toISOString(), azienda: S.azienda, clienti: S.clienti, apparecchi: S.apparecchi, verifiche: S.verifiche }, null, 1)], { type: "application/json" })); break;
   }
@@ -1372,6 +1396,7 @@ document.addEventListener("input", (e) => {
   if (t.dataset.ag && UI.sheet?.draft) { UI.sheet.draft[t.dataset.ag] = t.value; return; }
 });
 document.addEventListener("change", (e) => { const t = e.target; if ((t.type === "checkbox" || t.tagName === "SELECT") && (t.dataset.f || t.dataset.fi || t.dataset.ae || t.dataset.ce)) t.dispatchEvent(new Event("input", { bubbles: true })); });
+document.addEventListener("change", (e) => { if (e.target.id === "abbFile") abbFileScelti(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && UI.sheet && !$("#padRoot").innerHTML) closeSheet(); });
 
 async function aeRefresh(id, el) {
@@ -1431,6 +1456,72 @@ async function importaStorico(conferma) {
       toast("Storico importato"); await start();
     }
   } catch (err) { if (err instanceof SyntaxError) toast("Il file non è un JSON valido."); else apiError(err); }
+}
+/* Import degli abbonamenti software dai CSV «Storico articolo» di BluGest (Data;Tipo;Documento;Soggetto;Variante;Lotto;Quantità;Prezzo netto;Importo).
+   L'anno di competenza viene dal codice articolo nel nome del file (es. storico-ABBITAL_2025.csv); se manca lo si scrive a mano. */
+function csvRighe(testo) {
+  const out = []; let riga = [], campo = "", q = false;
+  testo = testo.replace(/^\ufeff/, "");
+  for (let i = 0; i < testo.length; i++) {
+    const ch = testo[i];
+    if (q) { if (ch === '"') { if (testo[i + 1] === '"') { campo += '"'; i++; } else q = false; } else campo += ch; continue; }
+    if (ch === '"') q = true;
+    else if (ch === ";") { riga.push(campo); campo = ""; }
+    else if (ch === "\n" || ch === "\r") { if (ch === "\r" && testo[i + 1] === "\n") i++; riga.push(campo); campo = ""; if (riga.some((x) => x.trim())) out.push(riga); riga = []; }
+    else campo += ch;
+  }
+  riga.push(campo); if (riga.some((x) => x.trim())) out.push(riga);
+  return out;
+}
+const numIt = (v) => { const s = String(v || "").trim(); return Number(/,\d+$/.test(s) ? s.replace(/\./g, "").replace(",", ".") : s) || 0; };
+const dataIt = (v) => { const s = String(v || "").trim(); if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10); const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); return m ? `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}` : ""; };
+async function leggiCsvAbbonamenti(files) {
+  const anni = [];
+  for (const [i, f] of files.entries()) {
+    const rows = csvRighe(await f.text());
+    const h = (rows.shift() || []).map((x) => x.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim());
+    const col = (...nomi) => h.findIndex((x) => nomi.some((n) => x === n || x.startsWith(n)));
+    const cS = col("soggetto", "cliente", "ragione sociale"), cQ = col("quantita"), cI = col("importo"), cD = col("data"), cDoc = col("documento");
+    if (cS < 0 || cQ < 0) throw new Error(`«${f.name}» non sembra un export dello storico articolo di BluGest (mancano le colonne Soggetto e Quantità).`);
+    const anno = ($(`#abbAnno${i}`)?.value || "").trim() || (f.name.match(/(?:^|[^0-9])(20\d\d)(?:[^0-9]|$)/) || [])[1] || "";
+    if (!/^20\d\d$/.test(anno)) throw new Error(`Scrivi l'anno di competenza per «${f.name}».`);
+    anni.push({ anno, file: f.name, righe: rows.map((r) => ({ soggetto: (r[cS] || "").trim(), quantita: numIt(r[cQ]), importo: cI >= 0 ? numIt(r[cI]) : 0, data: cD >= 0 ? dataIt(r[cD]) : "", documento: cDoc >= 0 ? (r[cDoc] || "").trim() : "" })).filter((r) => r.soggetto) });
+  }
+  return anni;
+}
+function abbFileScelti() {
+  const files = [...($("#abbFile")?.files || [])], box = $("#abbAnni"); if (!box) return;
+  UI.abbScelte = {};
+  $("#abbBox").innerHTML = "";
+  box.innerHTML = files.length ? `<div class="grid3">${files.map((f, i) => `<label class="field"><span>Anno di «${esc(f.name)}»</span><input type="number" min="2000" max="2099" id="abbAnno${i}" class="mono" value="${(f.name.match(/(?:^|[^0-9])(20\d\d)(?:[^0-9]|$)/) || [])[1] || ""}"></label>`).join("")}</div>` : "";
+}
+const euroAbb = (n) => Number(n || 0).toFixed(2).replace(".", ",") + " €";
+async function importaAbbonamenti(conferma) {
+  const box = $("#abbBox"), files = [...($("#abbFile")?.files || [])];
+  if (!files.length) return toast("Scegli prima i file CSV esportati da BluGest.");
+  if (conferma && !guardWrite()) return;
+  try {
+    const anni = await leggiCsvAbbonamenti(files);
+    // le scelte fatte restano finché non si cambiano i file (al secondo riepilogo le tendine spariscono)
+    const abbinamenti = (UI.abbScelte ||= {});
+    box.querySelectorAll("select[data-abb]").forEach((x) => { if (x.value) abbinamenti[x.dataset.abb] = x.value; });
+    const r = await api("POST", "/api/importa-abbonamenti", { formato: "blucheck-abbonamenti-1", fonte: anni.map((a) => a.file).join(", "), anni: anni.map(({ anno, righe }) => ({ anno, righe })), abbinamenti, conferma: !!conferma });
+    if (!r.anteprima) {
+      box.innerHTML = `<div class="banner ok"><span>Abbonamenti aggiornati su <b>${r.aggiornati}</b> clienti${r.nuoviClienti ? ` (${r.nuoviClienti} nuovi)` : ""}. ${r.backup ? `Backup fatto prima dell'import: <span class="mono">${esc(r.backup)}</span>.` : ""}</span></div>`;
+      toast(`Abbonamenti aggiornati su ${r.aggiornati} clienti`); await start(); return;
+    }
+    const opz = S.clienti.slice().sort((x, y) => norm(x.ragione).localeCompare(norm(y.ragione))).map((c) => `<option value="${c.id}">${esc(c.ragione)}</option>`).join("");
+    const tipo = { nuovo: "aggiunto", cambiato: "cambiato", tolto: "tolto", stornato: "stornato (nota di credito)" };
+    const righe = r.cambi.map((c) => `<tr><td>${esc(c.ragione)}${c.nuovo ? ` <span class="pill warn">nuovo cliente</span>` : ""}${c.come === "ricordato" || c.come === "scelto" || (c.soggetti[0] && norm(c.soggetti[0]) !== norm(c.ragione)) ? `<br><span class="faint">in BluGest: ${esc(c.soggetti.join(", "))}</span>` : ""}</td>
+      <td>${c.righe.map((x) => `<span class="mono">${x.anno}</span> ${tipo[x.tipo]}${x.canoni ? ` · ${x.canoni} × ${euroAbb(x.importo / x.canoni)}` : ""}${x.prima ? ` (prima ${esc(x.prima)})` : ""}${x.motivo ? ` (${esc(x.motivo)})` : ""}`).join("<br>") || "—"}</td>
+      <td>${c.segnaGestionale ? "«Usa un gestionale» diventa Sì" : ""}${c.avvisi.length ? `<br><span class="faint">${c.avvisi.map(esc).join("<br>")}</span>` : ""}</td></tr>`).join("");
+    const nt = r.nonTrovati.map((n) => `<tr><td>${esc(n.soggetto)}</td><td class="mono">${n.anni.join(", ")}</td><td><select data-abb="${esc(n.soggetto)}"><option value="">Scegli…</option><option value="nuovo">Crea un cliente nuovo</option><option value="ignora">Ignora</option>${n.proposta && cliente(n.proposta) ? `<option value="${n.proposta}" selected>Probabile: ${esc(cliente(n.proposta).ragione)}</option>` : ""}<optgroup label="Clienti di BluCheck">${opz}</optgroup></select></td></tr>`).join("");
+    box.innerHTML = `<div class="banner info" style="flex-direction:column;align-items:stretch"><span>Anni nei file: <b>${r.anni.join(", ")}</b>. Clienti da aggiornare: <b>${r.cambi.length}</b>${r.nuoviClienti ? ` (di cui ${r.nuoviClienti} ${r.nuoviClienti === 1 ? "nuovo" : "nuovi"})` : ""}; abbonamenti aggiunti <b>${r.abbonamentiNuovi}</b>, cambiati <b>${r.abbonamentiCambiati}</b>, tolti <b>${r.abbonamentiTolti}</b>. Già a posto: <b>${r.invariati}</b>.${r.ignorati.length ? ` Ignorati: ${r.ignorati.length}.` : ""}</span>
+      ${nt ? `<span><b>${r.nonTrovati.length} clienti di BluGest non trovati in BluCheck:</b> scegli per ognuno il cliente giusto, «nuovo» o «ignora» («Probabile» è un suggerimento da controllare), poi premi di nuovo «Vedi riepilogo». La scelta resta ricordata per i prossimi import.</span>
+        <div style="overflow:auto"><table class="t"><thead><tr><th>Nome in BluGest</th><th>Anni</th><th>Cliente in BluCheck</th></tr></thead><tbody>${nt}</tbody></table></div>` : ""}
+      ${righe ? `<div style="overflow:auto;max-height:50vh"><table class="t"><thead><tr><th>Cliente</th><th>Abbonamento</th><th>Altro</th></tr></thead><tbody>${righe}</tbody></table></div>` : ""}
+      ${r.cambi.length && !r.nonTrovati.length ? `<div class="row"><button class="btn primary" data-act="abb-conferma">Importa abbonamenti</button></div>` : ""}</div>`;
+  } catch (err) { apiError(err); }
 }
 // Riattivazione di un cliente cessato. Stesso apparecchio: i suoi registratori (non dismessi) tornano nelle scadenze con le date di prima.
 // Apparecchio nuovo: i registratori di prima diventano «dismessi» (restano in archivio con i loro rapporti) e si apre la scheda del nuovo.

@@ -916,6 +916,142 @@ app.post("/api/importa-storico", auth, azOnly, solo("admin"), wrap(async (req, r
   registra(req.user.email, "import_storico", `${req.azienda.ragione}: ${nuovi.length} nuovi (${riepilogo.cessati} cessati), ${aggiorna.length} aggiornati, ${cambiati} discordanze col valore del file, ${saltati.length} invariati; backup ${path.basename(backup)}`, req.ip);
   res.json({ importati: nuovi.length, cambiati, backup: path.basename(backup), ...riepilogo });
 }));
+/* ---------- import degli abbonamenti software (canoni annuali venduti in BluGest, es. articoli ABBITAL_2024/2025/2026) ----------
+   Il browser legge gli export «Vendite › Storico articolo» di BluGest (CSV) e manda qui le righe, una lista per anno di competenza
+   (l'anno è quello del codice articolo, non della data della fattura: il canone 2025 si fattura anche nel 2026).
+   Ogni anno del file è completo, quindi sostituisce quello già in BluCheck: le note di credito stornano le fatture (quantità
+   negativa), un cliente con somma 0 per quell'anno non ha l'abbonamento. Il cliente si trova per ragione sociale (normalizzata) o per
+   un nome BluGest già abbinato a mano (`nomiBlugest`); quelli non trovati si scelgono nel riepilogo: cliente esistente, nuovo o ignora.
+   Il cliente riceve `abbSw` = { "<anno>": { canoni, importo, documenti: [{ documento, data, quantita, importo }] } } e `gestionale = "si"`.
+   Senza `conferma` è solo anteprima; con `conferma` backup del database e una transazione. */
+// cliente «probabile» per un nome BluGest non trovato: quello con più parole significative in comune (almeno 2 e almeno metà)
+const PAROLE_VUOTE = new Set(["DI", "DEL", "DELLA", "DELLE", "DEI", "E", "C", "SRL", "SRLS", "SNC", "SAS", "SPA", "S", "R", "L", "AZ", "AGR", "AZIENDA", "AGRICOLA", "SOC", "SOCIETA", "DITTA"]);
+const parole = (s) => new Set(normRagione(s).split(" ").filter((w) => w.length > 1 && !PAROLE_VUOTE.has(w)));
+function proponiCliente(nome, clienti) {
+  const a = parole(nome); if (a.size < 2) return "";
+  let best = null, bestN = 0, pari = false;
+  for (const c of clienti) {
+    const b = parole(c.ragione); let n = 0; for (const w of a) if (b.has(w)) n++;
+    if (n > bestN) { best = c; bestN = n; pari = false; } else if (n === bestN && n > 0) pari = true;
+  }
+  return best && !pari && bestN >= 2 && bestN * 2 >= Math.min(a.size, parole(best.ragione).size) ? best.id : "";
+}
+function leggiAbbonamenti(body, aziendaId) {
+  if (body?.formato !== "blucheck-abbonamenti-1" || !Array.isArray(body.anni)) fail(400, "Dati non riconosciuti: carica gli export CSV dello storico articolo di BluGest.");
+  if (body.anni.length > 20) fail(413, "Troppi anni in una volta (massimo 20).");
+  const clienti = db.prepare("SELECT data FROM dati WHERE azienda_id=? AND coll='clienti' AND eliminato=0").all(aziendaId).map((r) => JSON.parse(r.data));
+  const perNome = new Map();
+  for (const c of clienti) { perNome.set(normRagione(c.ragione), c); for (const n of c.nomiBlugest || []) if (!perNome.has(normRagione(n))) perNome.set(normRagione(n), c); }
+  const cliById = new Map(clienti.map((c) => [c.id, c]));
+  const scelteCli = body.abbinamenti && typeof body.abbinamenti === "object" ? body.abbinamenti : {};
+  // soggetto (nome BluGest) -> { anno -> { canoni, importo, documenti } }
+  const perSoggetto = new Map(), anni = new Set();
+  let righeTot = 0;
+  for (const a of body.anni) {
+    const anno = String(a?.anno || "");
+    if (!/^20\d\d$/.test(anno)) fail(400, `Anno non valido: «${str(a?.anno, 20)}».`);
+    if (anni.has(anno)) fail(400, `L'anno ${anno} è stato caricato due volte.`);
+    anni.add(anno);
+    if (!Array.isArray(a.righe)) fail(400, `Righe mancanti per l'anno ${anno}.`);
+    righeTot += a.righe.length; if (righeTot > 20000) fail(413, "Troppe righe in una volta.");
+    for (const r of a.righe) {
+      const soggetto = str(r?.soggetto, 200).toUpperCase(); if (!normRagione(soggetto)) continue;
+      const q = Number(r.quantita) || 0, imp = Math.round((Number(r.importo) || 0) * 100) / 100;
+      if (!perSoggetto.has(soggetto)) perSoggetto.set(soggetto, {});
+      const x = (perSoggetto.get(soggetto)[anno] ||= { canoni: 0, importo: 0, documenti: [] });
+      x.canoni += q; x.importo = Math.round((x.importo + imp) * 100) / 100;
+      x.documenti.push({ documento: str(r.documento, 80), data: isDate(r.data) ? r.data : "", quantita: q, importo: imp });
+    }
+  }
+  const per = new Map(); // clienteId (o "nuovo:<soggetto>") -> { cliente, soggetti, anni }
+  const nonTrovati = [], ignorati = [];
+  for (const [soggetto, perAnno] of perSoggetto) {
+    const scelta = str(scelteCli[soggetto], 40);
+    let cli = null, come = "";
+    if (scelta === "ignora") { ignorati.push(soggetto); continue; }
+    if (scelta && scelta !== "nuovo") { cli = cliById.get(scelta) || null; come = "scelto"; }
+    if (!cli && scelta !== "nuovo") { cli = perNome.get(normRagione(soggetto)) || null; if (cli) come = normRagione(cli.ragione) === normRagione(soggetto) ? "nome" : "ricordato"; }
+    if (!cli && scelta !== "nuovo") { nonTrovati.push({ soggetto, anni: Object.keys(perAnno).sort(), proposta: proponiCliente(soggetto, clienti) }); continue; }
+    const k = cli ? cli.id : "nuovo:" + soggetto;
+    if (!per.has(k)) per.set(k, { cliente: cli, nuovo: !cli, ragione: cli ? cli.ragione : soggetto, soggetti: [], come, anni: {} });
+    const p = per.get(k); p.soggetti.push(soggetto);
+    for (const [anno, x] of Object.entries(perAnno)) {
+      const y = (p.anni[anno] ||= { canoni: 0, importo: 0, documenti: [] });
+      y.canoni += x.canoni; y.importo = Math.round((y.importo + x.importo) * 100) / 100; y.documenti.push(...x.documenti);
+    }
+  }
+  const cambi = [], invariati = [];
+  for (const p of per.values()) {
+    const vecchio = p.cliente?.abbSw || {};
+    const nuovo = { ...vecchio };
+    const righe = [];
+    for (const anno of anni) {
+      const x = p.anni[anno];
+      if (x && x.canoni > 0) {
+        x.documenti.sort((a, b) => a.data.localeCompare(b.data));
+        const v = vecchio[anno];
+        if (!v) righe.push({ anno, tipo: "nuovo", canoni: x.canoni, importo: x.importo });
+        else if (v.canoni !== x.canoni || v.importo !== x.importo) righe.push({ anno, tipo: "cambiato", canoni: x.canoni, importo: x.importo, prima: `${v.canoni} × ${v.importo}` });
+        nuovo[anno] = { canoni: x.canoni, importo: x.importo, documenti: x.documenti };
+      } else if (vecchio[anno]) { righe.push({ anno, tipo: "tolto", motivo: x ? "stornato da nota di credito" : "non più nel file" }); delete nuovo[anno]; }
+      else if (x) righe.push({ anno, tipo: "stornato", canoni: 0, importo: x.importo });
+    }
+    const avvisi = [];
+    for (const anno of anni) if (p.anni[anno]?.canoni > 1) avvisi.push(`${anno}: ${p.anni[anno].canoni} canoni nello stesso anno`);
+    for (const anno of anni) if (p.anni[anno]?.documenti.some((d) => d.quantita < 0)) avvisi.push(`${anno}: c'è una nota di credito`);
+    const segnaGestionale = !p.cliente || p.cliente.gestionale !== "si";
+    if (p.cliente?.cessato) avvisi.push("cliente cessato in BluCheck");
+    const rigaOut = { clienteId: p.cliente?.id || "", ragione: p.ragione, nuovo: p.nuovo, come: p.come, soggetti: p.soggetti, righe, avvisi, segnaGestionale,
+      gestionalePrima: p.cliente?.gestionale || "", abbSw: nuovo };
+    if (!righe.some((r) => r.tipo !== "stornato") && !segnaGestionale && !p.nuovo) invariati.push(rigaOut); else cambi.push(rigaOut);
+  }
+  // clienti che in BluCheck hanno uno degli anni del file ma nel file non ci sono: l'anno si toglie (il file di quell'anno è completo)
+  for (const c of clienti) {
+    if (per.has(c.id) || !c.abbSw) continue;
+    const via = [...anni].filter((a) => c.abbSw[a]);
+    if (!via.length) continue;
+    const nuovo = { ...c.abbSw }; for (const a of via) delete nuovo[a];
+    cambi.push({ clienteId: c.id, ragione: c.ragione, nuovo: false, come: "", soggetti: [], righe: via.map((anno) => ({ anno, tipo: "tolto", motivo: "non più nel file" })), avvisi: [], segnaGestionale: false, abbSw: nuovo });
+  }
+  cambi.sort((a, b) => normRagione(a.ragione).localeCompare(normRagione(b.ragione)));
+  nonTrovati.sort((a, b) => a.soggetto.localeCompare(b.soggetto));
+  return { anni: [...anni].sort(), cambi, invariati, nonTrovati, ignorati };
+}
+app.post("/api/importa-abbonamenti", auth, azOnly, solo("admin"), wrap(async (req, res) => {
+  const p = leggiAbbonamenti(req.body, req.azienda.id);
+  const conta = (t) => p.cambi.reduce((n, c) => n + c.righe.filter((r) => r.tipo === t).length, 0);
+  const riepilogo = { anni: p.anni, nuoviClienti: p.cambi.filter((c) => c.nuovo).length, abbonamentiNuovi: conta("nuovo"), abbonamentiCambiati: conta("cambiato"),
+    abbonamentiTolti: conta("tolto"), gestionaleSi: p.cambi.filter((c) => c.segnaGestionale).length, invariati: p.invariati.length,
+    cambi: p.cambi.map(({ abbSw, ...c }) => c), nonTrovati: p.nonTrovati, ignorati: p.ignorati };
+  if (!req.body.conferma) return res.json({ anteprima: true, ...riepilogo });
+  if (p.nonTrovati.length) fail(400, "Ci sono clienti di BluGest non abbinati: scegli per ognuno un cliente, «nuovo» o «ignora».");
+  if (!p.cambi.length) return res.json({ aggiornati: 0, ...riepilogo });
+  const dir = path.join(path.dirname(db.name), "backup");
+  fs.mkdirSync(dir, { recursive: true });
+  const backup = path.join(dir, `blucheck-prima-import-abbonamenti-${new Date().toISOString().replace(/[:.]/g, "-")}.db`);
+  await db.backup(backup);
+  const fonte = str(req.body.fonte, 200);
+  const attuali = new Map(db.prepare("SELECT data FROM dati WHERE azienda_id=? AND coll='clienti' AND eliminato=0").all(req.azienda.id).map((r) => JSON.parse(r.data)).map((c) => [c.id, c]));
+  db.transaction(() => {
+    for (const c of p.cambi) {
+      if (c.nuovo) {
+        const cid = uid();
+        salvaDato(req.azienda.id, "clienti", cid, { id: cid, ragione: c.ragione, piva: "", cf: "", sdi: "", pec: "", domicilio: "", telefono: "", email: "", referente: "",
+          note: "CLIENTE CREATO DALL'IMPORT DEGLI ABBONAMENTI SOFTWARE: ANAGRAFICA DA COMPLETARE.", gestionale: "si", software: "", abbSw: c.abbSw,
+          nomiBlugest: c.soggetti, importato: { il: oggi(), fonte: fonte || "abbonamenti software" } }, req.user);
+        continue;
+      }
+      const gia = attuali.get(c.clienteId); if (!gia) continue;
+      const nomi = [...new Set([...(gia.nomiBlugest || []), ...c.soggetti.filter((s) => normRagione(s) !== normRagione(gia.ragione))])];
+      const dati = { ...gia, abbSw: c.abbSw, abbSwIl: oggi() };
+      if (nomi.length) dati.nomiBlugest = nomi;
+      if (c.segnaGestionale) dati.gestionale = "si";
+      salvaDato(req.azienda.id, "clienti", gia.id, dati, req.user);
+    }
+  })();
+  registra(req.user.email, "import_abbonamenti", `${req.azienda.ragione}: anni ${p.anni.join(", ")}; ${riepilogo.nuoviClienti} clienti nuovi, ${p.cambi.length} clienti aggiornati, ${riepilogo.abbonamentiNuovi} abbonamenti nuovi, ${riepilogo.abbonamentiTolti} tolti; backup ${path.basename(backup)}`, req.ip);
+  res.json({ aggiornati: p.cambi.length, backup: path.basename(backup), ...riepilogo });
+}));
 /* ---------- import dei QR code da file (foto, PDF, ZIP) ----------
    Il browser legge i QR dai file e manda qui gli indirizzi della pagina dell'Agenzia. Prima si leggono le pagine a gruppi
    (POST /api/importa-qr/leggi, così si vede l'avanzamento e non si supera il tempo di nginx), poi POST /api/importa-qr
