@@ -122,6 +122,25 @@ async function btStampa(bytes, onProgress) {
     onProgress?.(Math.min(1, (i + pezzo) / bytes.length));
   }
 }
+/* Porta seriale (Web Serial, Chrome/Edge su computer): la stampante collegata via USB o abbinata in Bluetooth classico ha una
+   porta COM; ci si mandano gli stessi comandi ESC/POS, senza driver: carta lunga quanto la stampa, caratteri nativi e taglio. */
+const SPP = "00001101-0000-1000-8000-00805f9b34fb";
+const serDisponibile = () => !!(navigator.serial && window.isSecureContext);
+const Seriale = { port: null };
+async function serStampa(bytes, scegli, onProgress) {
+  if (!serDisponibile()) throw new Error("Questo browser non può usare le porte USB/COM: usa Chrome o Edge sul computer.");
+  if (scegli || !Seriale.port) {
+    const note = scegli ? [] : await navigator.serial.getPorts();
+    Seriale.port = note.length === 1 ? note[0] : await navigator.serial.requestPort({ allowedBluetoothServiceClassIds: [SPP] });
+  }
+  const port = Seriale.port;
+  try { if (!port.writable) await port.open({ baudRate: btPref().baud || 9600 }); }
+  catch (e) { Seriale.port = null; throw new Error("Non riesco ad aprire la porta: forse la usa un altro programma (o la coda di stampa di Windows), oppure la stampante è spenta. Chiudi gli altri programmi e riprova, o scegli un'altra porta."); }
+  const w = port.writable.getWriter();
+  try { for (let i = 0; i < bytes.length; i += 256) { await w.write(bytes.slice(i, i + 256)); onProgress?.(Math.min(1, (i + 256) / bytes.length)); } }
+  finally { w.releaseLock(); }
+  await port.close().catch(() => { }); // la porta torna libera per Windows e gli altri programmi
+}
 // RawBT (app Android gratuita): riceve gli stessi comandi ESC/POS e li manda anche alle stampanti Bluetooth classiche
 function rawbtUrl(bytes) {
   let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));

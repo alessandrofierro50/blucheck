@@ -1161,6 +1161,7 @@ function panelTermica(v) {
     <div class="field"><span>Larghezza carta</span><div class="seg wide choose" role="group">${carta}</div></div>
     <div class="row">${bt ? `<button class="btn primary" data-act="bt-stampa" data-id="${v.id}" ${st.busy ? "disabled" : ""}>${st.busy ? `Stampa in corso… ${Math.round((st.pct || 0) * 100)}%` : "Stampa sulla termica"}</button>${Termica.device ? `<button class="btn sm" data-act="bt-cambia" data-id="${v.id}">Cambia stampante</button>` : ""}` : ""}
       ${isAndroid() ? `<button class="btn${bt ? " sm" : ""}" data-act="bt-rawbt" data-id="${v.id}">Stampa con RawBT</button>` : ""}
+      ${serDisponibile() ? `<button class="btn${bt ? " sm" : ""}" data-act="ser-stampa" data-id="${v.id}" ${st.busy ? "disabled" : ""}>Stampa da USB / porta COM</button>` : ""}
       <button class="btn${bt ? " sm" : ""}" data-act="pdf80-share" data-id="${v.id}">Condividi PDF 80 mm</button></div>
     ${bt ? `<label class="check"><input type="checkbox" data-act="bt-lenta" ${p.lenta ? "checked" : ""}> Modalità compatibile (più lenta): usala se la stampa esce tagliata o con righe strane</label>` : ""}
     ${st.err ? `<div class="qrres"><b>Stampa non riuscita</b>${esc(st.err)}</div>` : ""}</div>`;
@@ -1175,14 +1176,21 @@ function panelProvaTermica() {
     <p class="faint" style="margin:0">Stampa la scheda di verifica in bianco da compilare a mano (caselle SI/NO, righe per esercente, apparecchio, firme e timbro), con in fondo un controllo della larghezza.${p.nome ? ` Ultima stampante: <b>${esc(p.nome)}</b>.` : ""}</p>
     <div class="field"><span>Scheda</span><div class="seg wide choose" role="group">${tipo}</div></div>
     <div class="field"><span>Larghezza carta</span><div class="seg wide choose" role="group">${carta}</div></div>
-    <div class="row">${bt ? `<button class="btn primary" data-act="prova-bt" ${PROVA.busy ? "disabled" : ""}>${PROVA.busy ? `Stampa in corso… ${Math.round((PROVA.pct || 0) * 100)}%` : "Stampa con Bluetooth"}</button>` : ""}
+    <div class="row">${bt ? `<button class="btn${isAndroid() ? " primary" : ""}" data-act="prova-bt" ${PROVA.busy ? "disabled" : ""}>${PROVA.busy ? `Stampa in corso… ${Math.round((PROVA.pct || 0) * 100)}%` : "Stampa con Bluetooth"}</button>` : ""}
       ${isAndroid() ? `<button class="btn" data-act="prova-rawbt">Stampa con RawBT</button>` : ""}
+      ${serDisponibile() ? `<button class="btn${isAndroid() ? "" : " primary"}" data-act="prova-ser" ${PROVA.busy ? "disabled" : ""}>Stampa da USB / porta COM</button>` : ""}
       <button class="btn" data-act="prova-pdf">PDF 80 mm (Windows / altre app)</button></div>
-    <p class="faint" style="margin:0">Bluetooth diretto: solo stampanti «BLE» con Chrome su Android; se la tua non compare nell'elenco usa RawBT. Il PDF serve per stampare da Windows col driver POS80: se la scheda esce bene da RawBT e spezzata da Windows, il problema è il driver.</p>
+    <p class="faint" style="margin:0">Dal computer (Chrome o Edge) usa «Stampa da USB / porta COM»: scegli la porta della stampante (USB o Bluetooth abbinato) e la scheda esce lunga quanto serve, con i caratteri della stampante e il taglio, senza impostare il driver. Bluetooth diretto: solo stampanti «BLE» con Chrome su Android; se la tua non compare usa RawBT. Il PDF resta per stampare col driver POS80 di Windows.</p>
     ${PROVA.err ? `<div class="qrres"><b>Stampa non riuscita</b>${esc(PROVA.err)}</div>` : ""}`;
 }
 const paintProva = () => { const el = $("#provaTermica"); if (el) el.innerHTML = panelProvaTermica(); };
 const bytesProva = () => escposSchedaBianca(btPref().carta, PROVA.tipo, lab());
+async function provaSer() {
+  if (PROVA.busy) return; PROVA.busy = true; PROVA.err = ""; paintProva();
+  try { await serStampa(await bytesProva(), true); toast("Scheda inviata alla stampante"); }
+  catch (e) { if (e?.name !== "NotFoundError") PROVA.err = e.message || String(e); }
+  PROVA.busy = false; paintProva();
+}
 async function provaBt() {
   if (PROVA.busy) return; PROVA.busy = true; PROVA.pct = 0; PROVA.err = ""; paintProva();
   try {
@@ -1214,6 +1222,13 @@ async function stampaTermica(id, scegli) {
     s.bt = annullato ? {} : { err: e?.name === "NetworkError" ? "La stampante non risponde: controlla che sia accesa, vicina e non collegata a un altro telefono, poi riprova." : e.message || String(e) };
     if (e?.name === "NetworkError") { Termica.ch = null; }
   }
+  if (UI.sheet === s) renderSheet();
+}
+async function stampaSeriale(id, scegli) {
+  const s = UI.sheet; if (!s || s.bt?.busy) return;
+  s.bt = { busy: true, pct: 0 }; renderSheet();
+  try { const bytes = await escposDi(id); await serStampa(bytes, scegli, (p) => { s.bt.pct = p; }); s.bt = {}; toast("Rapporto inviato alla stampante"); }
+  catch (e) { s.bt = e?.name === "NotFoundError" ? {} : { err: e.message || String(e) }; }
   if (UI.sheet === s) renderSheet();
 }
 async function pdfBlob(kind, id) {
@@ -1292,6 +1307,8 @@ document.addEventListener("click", async (e) => {
     case "bt-carta": ls.set(BT_PREF, { ...btPref(), carta: Number(el.dataset.v) }); if (UI.sheet) renderSheet(); paintProva(); break;
     case "prova-bt": await provaBt(); break;
     case "prova-tipo": PROVA.tipo = el.dataset.v; paintProva(); break;
+    case "prova-ser": await provaSer(); break;
+    case "ser-stampa": await stampaSeriale(id, !Seriale.port); break;
     case "prova-rawbt": try { location.href = rawbtUrl(await bytesProva()); setTimeout(() => toast("Se non si apre niente, installa RawBT dal Play Store e collega lì la stampante.", 6000), 1500); } catch (err) { apiError(err); } break;
     case "prova-pdf": { const w = window.open("", "_blank"); try { const blob = pdfSchedaBianca(PROVA.tipo, lab()).output("blob"), url = URL.createObjectURL(blob); if (w && !w.closed) w.location.href = url; else scaricaFile(`Scheda_verifica_80mm_${PROVA.tipo}.pdf`, blob); } catch (err) { w?.close(); apiError(err); } break; }
     case "bt-lenta": ls.set(BT_PREF, { ...btPref(), lenta: el.checked }); break;

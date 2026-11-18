@@ -81,6 +81,9 @@ Questo software fa parte del progetto BluCode Informatica. La memoria condivisa 
       bianco** da compilare a mano (`v.bianco` in `pdfThermal`/`escposRapporto`: caselle «[ ]SI [ ]NO», righe per esercente/apparecchio/date,
       esito da spuntare, spazio per firme e timbro; All. 1 o All. 2) con in fondo un controllo della larghezza (righello di colonne e barra
       raster a tutta carta, `escposSchedaBianca`), via Bluetooth, RawBT o PDF 80 mm (`pdfSchedaBianca`, righello in mm) per il driver POS80 di Windows.
+      Dal computer «Stampa da USB / porta COM» (Web Serial, `serStampa` in common.js, Chrome/Edge): stessi byte ESC/POS sulla porta COM
+      della stampante (USB o Bluetooth classico abbinato, SPP ammesso), 9600 baud, porta chiusa dopo ogni stampa; carta lunga quanto il
+      contenuto e taglio, senza driver. PDF 80 mm con caratteri +25% (`K` in `pdfThermal`) perché sulla termica il testo piccolo esce sbiadito.
 - [x] Importa QR da file (2026-11-18): Apparecchi > «Importa QR da file» (`public/js/importa-qr.js`, caricato da `app.js` solo al clic con
       `caricaImportaQr`, `?v=` da cambiare a ogni modifica del file; pannello `qrimp`, eventi propri `data-qi-act` / `data-qi-sel`).
       Il browser legge foto, PDF (pdf.js 4.10.38 legacy in `public/vendor/pdfjs`, import dinamico) e ZIP (lettore interno con
