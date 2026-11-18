@@ -269,6 +269,11 @@ function pdfThermal(v, firmaU, firmaT, timbro, coda) {
    Stesso contenuto del PDF 80 mm, ma come comandi ESC/POS: testo nativo della stampante (nitido e veloce anche via
    Bluetooth) e firme/timbro come immagini raster. carta: 80 mm = 48 colonne e 576 punti, 58 mm = 32 colonne e 384 punti. */
 const ESC_CARTA = { 80: { cols: 48, dots: 576 }, 58: { cols: 32, dots: 384 } };
+// velocità della testina (ESC 7 n1 n2 n3: punti scaldati insieme, tempo e pausa di riscaldamento, comando delle stampantine
+// cinesi tipo MTP/Xprinter; chi non lo conosce lo ignora): più lenta = stampa più scura e uniforme. «normale» non manda niente.
+function escCalore(vel = (typeof btPref === "function" ? btPref().velocita : "normale")) {
+  return vel === "molto" ? [0x1b, 0x37, 5, 200, 8] : vel === "lenta" ? [0x1b, 0x37, 7, 140, 4] : [];
+}
 // le stampantine non hanno una tabella caratteri comune: si stampa solo ASCII (à -> a', € -> EUR)
 const escAscii = (s) => clean(s).replace(/[àáÀÁèéÈÉìíÌÍòóÒÓùúÙÚ]/g, (c) => c.normalize("NFD")[0] + "'").replace(/Euro +/g, "EUR ")
   .normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/°/g, "o").replace(/[^\x20-\x7e\n]/g, "?");
@@ -319,7 +324,7 @@ async function escposRapporto(v, firmaU, firmaT, timbro, carta = 80, taglia = tr
   const lr = (a, b) => { align(0); const bb = escAscii(b); const la = escWrap(a, cols - bb.length - 1); la.forEach((x, i) => line(i === la.length - 1 ? x + " ".repeat(Math.max(1, cols - x.length - bb.length)) + bb : x)); };
   const sep = () => { align(0); line("-".repeat(cols)); };
   const img = async (url, maxDots, maxH) => { const r = await escImage(url, maxDots, maxH); if (r) { align(1); r.forEach((x) => parts.push(x)); raw(0x0a); } return !!r; };
-  raw(0x1b, 0x40); raw(0x1b, 0x74, 0x00);
+  raw(0x1b, 0x40); raw(0x1b, 0x74, 0x00); raw(...escCalore());
   t(L.ragione, { b: true, c: true }); t(`${L.indirizzo || ""} ${L.cap || ""}`.trim(), { c: true }); if (L.piva) t(`P.I. ${L.piva}`, { c: true }); sep();
   t("RAPPORTO DI VERIFICAZIONE PERIODICA RT", { b: true, c: true }); t(v.tipo === "privo" ? "PRIVO DI SIGILLO FISCALE" : "CON SIGILLO FISCALE INTEGRO", { b: true, c: true });
   const campo = (l) => { raw(0x0a); align(0); line((l ? l + " " : "") + "_".repeat(Math.max(4, cols - (l ? l.length + 1 : 0)))); };
