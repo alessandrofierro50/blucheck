@@ -80,6 +80,60 @@ function trimSignature(cv) {
   return out.toDataURL("image/png");
 }
 
+/* ---------------- Stampante termica Bluetooth (Web Bluetooth, BLE) ----------------
+   Funziona con Chrome/Edge su Android (e su computer). Non su iPhone/iPad: Safari non ha Web Bluetooth.
+   Le stampantine 58/80 mm col Bluetooth "BLE" espongono uno di questi servizi con una caratteristica scrivibile;
+   quelle solo "Bluetooth classico" non si vedono dal browser: per loro c'è RawBT (Android) o la condivisione del PDF. */
+const BT_SERVIZI = [
+  "000018f0-0000-1000-8000-00805f9b34fb", "e7810a71-73ae-499d-8c15-faa9aef0c3f2", "49535343-fe7d-4ae5-8fa9-9fafd205e455",
+  "0000ff00-0000-1000-8000-00805f9b34fb", "0000ffe0-0000-1000-8000-00805f9b34fb", "0000fee7-0000-1000-8000-00805f9b34fb",
+  "0000ae30-0000-1000-8000-00805f9b34fb", "0000ae3a-0000-1000-8000-00805f9b34fb", "0000ff12-0000-1000-8000-00805f9b34fb",
+];
+const BT_PREF = "blucheck_termica";
+const btPref = () => ({ carta: 80, lenta: false, ...(ls.get(BT_PREF) || {}) });
+const btDisponibile = () => !!(navigator.bluetooth && window.isSecureContext);
+const Termica = { device: null, ch: null };
+async function btCollega(scegli) {
+  if (!btDisponibile()) throw new Error("Questo browser non può usare il Bluetooth: usa Chrome su Android, oppure RawBT o «Condividi».");
+  if (scegli || !Termica.device) {
+    Termica.ch = null;
+    Termica.device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: BT_SERVIZI });
+    ls.set(BT_PREF, { ...btPref(), nome: Termica.device.name || "Stampante" });
+  }
+  if (Termica.ch && Termica.device.gatt.connected) return Termica.ch;
+  const srv = await Termica.device.gatt.connect();
+  let servizi = []; try { servizi = await srv.getPrimaryServices(); } catch { }
+  for (const sv of servizi) {
+    let chs = []; try { chs = await sv.getCharacteristics(); } catch { continue; }
+    const c = chs.find((x) => x.properties.writeWithoutResponse) || chs.find((x) => x.properties.write);
+    if (c) { Termica.ch = c; return c; }
+  }
+  Termica.device.gatt.disconnect(); Termica.device = null;
+  throw new Error("La stampante scelta non ha un canale di stampa Bluetooth LE: prova RawBT o «Condividi PDF 80 mm».");
+}
+async function btStampa(bytes, onProgress) {
+  const ch = await btCollega(false), pref = btPref();
+  const senzaRisposta = ch.properties.writeWithoutResponse, pezzo = pref.lenta ? 20 : senzaRisposta ? 100 : 180;
+  const pausa = (ms) => new Promise((r) => setTimeout(r, ms));
+  for (let i = 0; i < bytes.length; i += pezzo) {
+    const p = bytes.slice(i, i + pezzo);
+    if (senzaRisposta) { await ch.writeValueWithoutResponse(p); await pausa(pref.lenta ? 25 : 12); }
+    else await ch.writeValueWithResponse(p);
+    onProgress?.(Math.min(1, (i + pezzo) / bytes.length));
+  }
+}
+// RawBT (app Android gratuita): riceve gli stessi comandi ESC/POS e li manda anche alle stampanti Bluetooth classiche
+function rawbtUrl(bytes) {
+  let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return `intent:base64,${btoa(bin)}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;`;
+}
+const isAndroid = () => /android/i.test(navigator.userAgent);
+async function condividiFile(blob, nome, titolo) {
+  const f = new File([blob], nome, { type: blob.type || "application/pdf" });
+  if (navigator.canShare?.({ files: [f] })) { try { await navigator.share({ files: [f], title: titolo || nome }); return true; } catch (e) { if (e?.name === "AbortError") return true; } }
+  scaricaFile(nome, blob); toast("Questo dispositivo non può condividere file: il PDF è stato scaricato.", 4000); return false;
+}
+
 /* ---------------- QR code ---------------- */
 function decodeQRFromImage(file) {
   return new Promise((resolve, reject) => {

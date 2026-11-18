@@ -65,3 +65,13 @@ Questo software fa parte del progetto BluCode Informatica. La memoria condivisa 
       Arretrati (scaduti prima del periodo) in cima, si possono togliere. Tasti Visualizza tutti / Verifiche / DGFE / Aggiornamento software
       (anche cliccando i riquadri). Export TXT (`exportPlanningTxt`) e PDF A4 con caselle «Fatto» (`pdfPlanning` in `public/js/pdf.js`).
       Solo frontend: nessuna modifica al server o al database.
+- [x] Stampa dell'esito con timbro e termica Bluetooth (2026-11-18): firma del cliente col dito (c'era già: `openPad`) e **timbro simulato** del
+      cliente (`timbroCliente` in `public/js/pdf.js`: PNG trasparente con ragione sociale, domicilio, P.IVA e C.F. da `v.cli`, inchiostro blu,
+      grana a seme fisso) accanto alla firma dell'utente in A4, 80 mm e Dichiarazione All. 3 (se dichiara l'utente). Nel modulo casella «Timbro»
+      con anteprima (`v.timbro`, vero per i rapporti nuovi; i rapporti di prima partono senza); nel rapporto la casella cambia solo la stampa.
+      `v.cli.cf` ora si salva nel rapporto. Dichiarazione: firma più in basso, non copre più «Luogo e Data».
+      Pannello «Stampante termica Bluetooth» nel rapporto: `escposRapporto` (pdf.js, testo ESC/POS ASCII 48/32 colonne, firme e timbro raster
+      GS v 0, taglio finale) inviato con Web Bluetooth (`btCollega`/`btStampa` in `public/js/common.js`, servizi BLE noti delle stampantine,
+      preferenze carta 80/58 mm e «modalità compatibile» in localStorage `blucheck_termica`). Solo Chrome/Edge su Android o computer, in https.
+      Ripieghi: «Stampa con RawBT» (Android, stessi byte via `intent:base64`, anche per stampanti Bluetooth classiche) e «Condividi PDF 80 mm»
+      (iPhone: app della stampante). Dopo un PDF c'è anche «Condividi». Prova: `test/stampa.mjs` (Playwright, Bluetooth simulato).

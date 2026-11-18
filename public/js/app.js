@@ -221,8 +221,10 @@ const AIUTI = {
     serve: "I rapporti compilati: cosa è stato controllato, l'esito e la firma del tecnico e del cliente.",
     campi: [
       ["Esito", "Regolare o non regolare: decide se l'apparecchio può restare in servizio."],
-      ["Firme", "Si firmano sullo schermo e restano nel PDF."],
-      ["PDF", "Il rapporto da lasciare al cliente e da conservare."],
+      ["Firme", "Si firmano sullo schermo col dito e restano nel PDF."],
+      ["Timbro", "Timbro simulato del cliente (ragione sociale, indirizzo, P.IVA) accanto alla sua firma; si toglie con la casella."],
+      ["PDF", "Il rapporto da lasciare al cliente e da conservare: A4, 80 mm o «Condividi» per WhatsApp, email o l'app della stampante."],
+      ["Stampante termica", "Con Chrome su Android stampa direttamente sulla stampantina Bluetooth; altrimenti RawBT (Android) o «Condividi PDF 80 mm»."],
     ],
   },
   impostazioni: {
@@ -774,7 +776,9 @@ function sheetVer() {
     <div class="panel"><h2>Stampa</h2><p class="faint" style="margin:0">Si apre il PDF: stampalo su una stampante A4 oppure, nel formato 80 mm, su una stampante termica.</p>
       <div class="row"><button class="btn primary" data-act="pdf" data-k="a4" data-id="${v.id}">PDF A4</button><button class="btn" data-act="pdf" data-k="80" data-id="${v.id}">PDF termico 80 mm</button>
       ${v.tipo === "privo" ? `<button class="btn" data-act="pdf" data-k="dich" data-id="${v.id}">Dichiarazione (All. 3)</button>` : ""}</div>
-      ${pdf ? `<div class="qrres"><b>${esc(pdf.nome)}</b><div class="row"><a class="btn sm primary" href="${pdf.url}" target="_blank" rel="noopener">Apri per stampare</a><a class="btn sm" href="${pdf.url}" download="${esc(pdf.nome)}">Scarica</a></div></div>` : ""}</div>
+      <label class="check"><input type="checkbox" data-act="ver-timbro" data-id="${v.id}" ${conTimbro(v) ? "checked" : ""} ${v.cli?.ragione ? "" : "disabled"}> Timbro del cliente accanto alla sua firma${v.cli?.ragione ? "" : " (manca la ragione sociale)"}</label>
+      ${pdf ? `<div class="qrres"><b>${esc(pdf.nome)}</b><div class="row"><a class="btn sm primary" href="${pdf.url}" target="_blank" rel="noopener">Apri per stampare</a><a class="btn sm" href="${pdf.url}" download="${esc(pdf.nome)}">Scarica</a><button class="btn sm" data-act="pdf-share" data-id="${v.id}">Condividi</button></div></div>` : ""}</div>
+    ${panelTermica(v)}
     <div class="panel"><dl class="kv"><dt>Data</dt><dd>${fmtD(v.data)} · ${esc(v.oraInizio || "")}–${esc(v.oraFine || "")}</dd>
       <dt>Esercente</dt><dd>${esc(v.cli?.ragione || "")}<br><span class="faint">P.IVA ${esc(v.cli?.piva || "")}</span></dd>
       <dt>Apparecchio</dt><dd>${esc(v.app?.modello || "")} · <span class="mono">${esc(v.app?.matricola || "")}</span></dd>
@@ -796,7 +800,7 @@ function newForm(appId) {
     id: null, apparecchioId: a?.id || "", tipo: "integro", tipoSigillo: "", interventi: { lab: true, vp: true, biennale: true }, esiti: {},
     data: todayISO(), oraInizio: nowHM(), dataFine: todayISO(), oraFine: "", fwPresente: a?.firmware || "", fwData: a?.firmwareData || "", fwAggiornato: "",
     luogo: lab().luogo, utenteNome: cliente(a?.clienteId)?.referente || "", utenteQualifica: "", dgfeFatto: false, note: "",
-    motivoSigillo: "", dichiarante: "tecnico", firmaUtente: "", qrCheck: null,
+    motivoSigillo: "", dichiarante: "tecnico", firmaUtente: "", qrCheck: null, timbro: true,
   };
 }
 function startForm(appId, existing) {
@@ -805,7 +809,7 @@ function startForm(appId, existing) {
     getDoc("firme", existing.id).then((d) => { if (d && UI.form && UI.form.id === existing.id) { UI.form.firmaUtente = d.img || ""; refreshFormDyn(); } }).catch(() => { });
   } else {
     const draft = ls.get(fkey());
-    UI.form = (!appId && draft && draft.apparecchioId) ? draft : newForm(appId);
+    UI.form = (!appId && draft && draft.apparecchioId) ? { timbro: true, ...draft } : newForm(appId);
     if (draft && !appId && draft.apparecchioId) setTimeout(() => toast("Ripresa la bozza non salvata"), 50);
   }
   UI.sheet = null; delete $("#main").dataset.form; render(); window.scrollTo(0, 0);
@@ -852,6 +856,8 @@ function viewForm() {
     <div class="grid2"><div class="field"><span>Firma dell'utente</span><div class="sigbox" data-act="sign-utente" id="sigUtente"></div></div>
       <div class="field"><span>Firma del tecnico</span><div class="sigbox" data-act="sign-tecnico" id="sigTecnico"></div></div></div>
     <p class="faint" style="margin:0">Passa il telefono al cliente: si apre un'area di firma a tutto schermo. Girare il telefono in orizzontale aiuta.</p>
+    <label class="check"><input type="checkbox" id="f_timbro" data-f="timbro" ${F.timbro ? "checked" : ""}> Timbro del cliente accanto alla sua firma (ragione sociale, indirizzo, P.IVA dall'anagrafica)</label>
+    <div id="timbroBox"></div>
   </div>
   <div id="esitoBox"></div>`;
 }
@@ -878,6 +884,8 @@ function refreshFormDyn() {
   document.querySelectorAll('[data-act="dichiarante"]').forEach((b) => b.setAttribute("aria-pressed", (b.dataset.v === "utente") === (F.dichiarante === "utente")));
   $("#dgfeCheck").hidden = !a?.dgfeAnnuale;
   $("#sigUtente").innerHTML = F.firmaUtente ? `<img src="${F.firmaUtente}" alt="Firma utente">` : `<span>Tocca per far firmare il cliente</span>`;
+  const tb = F.timbro ? timbroCliente({ ragione: c?.ragione, domicilio: c?.domicilio, piva: c?.piva, cf: c?.cf }) : null;
+  $("#timbroBox").innerHTML = !F.timbro ? "" : tb ? `<div class="timbro-prev"><img src="${tb.url}" alt="Anteprima del timbro del cliente"></div>` : `<p class="faint" style="margin:0">Il timbro compare quando il registratore scelto ha un cliente con la ragione sociale.</p>`;
   $("#sigTecnico").innerHTML = S.firmaTecnico ? `<img src="${S.firmaTecnico}" alt="Firma tecnico">` : `<span>Tocca per firmare (resta salvata nel tuo profilo)</span>`;
   const e = computeEsito(F); const missing = buildTests(F.tipo).filter((t) => !t.head && !F.esiti[t.k]).length + PRE.filter((p) => !F.esiti[p.k]).length;
   $("#esitoBox").innerHTML = `<div class="esito ${e === "positivo" ? "ok" : e === "negativo" ? "bad" : "n"}">${e === "positivo" ? "Esito positivo" : e === "negativo" ? "Esito negativo" : "Esito non ancora determinato"}${missing ? ` <span class="faint" style="font-family:var(--f-body);font-weight:500;font-size:14px">· ${missing} prove da compilare</span>` : ""}</div>`;
@@ -902,7 +910,7 @@ async function saveVerifica() {
   const L = lab();
   const v = {
     ...rest, id, esito, apparecchioId: a.id, clienteId: a.clienteId || "",
-    cli: { ragione: c?.ragione || "", domicilio: c?.domicilio || "", piva: c?.piva || "" },
+    cli: { ragione: c?.ragione || "", domicilio: c?.domicilio || "", piva: c?.piva || "", cf: c?.cf || "" },
     app: { modello: a.modello || "", matricola: a.matricola || "", indirizzo: a.indirizzo || "", localita: a.localita || "" },
     lab: F.id && F.lab ? F.lab : { ragione: L.ragione, indirizzo: L.indirizzo, cap: L.cap, piva: L.piva, telefono: L.telefono },
     tecnico: F.id && F.tecnico ? F.tecnico : { nome: S.me.nome, cf: S.me.cf, sigillo: S.me.sigillo },
@@ -1106,22 +1114,71 @@ Lookups["apparecchi-ver"] = (btn) => {
 };
 
 /* ============================== PDF ============================== */
+// timbro: scelto nel rapporto (i rapporti di prima non l'avevano: partono senza), si può cambiare al momento della stampa
+const conTimbro = (v) => !!v.cli?.ragione && (UI.sheet?.kind === "ver" && UI.sheet.id === v.id && UI.sheet.timbro !== undefined ? UI.sheet.timbro : v.timbro === true);
+async function firmeRapporto(v) {
+  const f = await getDoc("firme", v.id).catch(() => null);
+  let firmaT = f?.tecnicoImg || "";
+  if (!firmaT && v.tecnicoId) firmaT = v.tecnicoId === S.me.id ? S.firmaTecnico : (await api("GET", "/api/firma-tecnico/" + v.tecnicoId).catch(() => ({}))).firma || "";
+  return { f, firmaT };
+}
 async function makePdf(kind, id, win) {
   const v = S.verifiche.find((x) => x.id === id); if (!v) return;
   if (!window.jspdf) { win?.close(); return toast("Modulo PDF non caricato: ricarica la pagina."); }
   try {
-    const f = await getDoc("firme", id).catch(() => null);
-    let firmaT = f?.tecnicoImg || "";
-    if (!firmaT && v.tecnicoId) firmaT = v.tecnicoId === S.me.id ? S.firmaTecnico : (await api("GET", "/api/firma-tecnico/" + v.tecnicoId).catch(() => ({}))).firma || "";
-    const doc = kind === "a4" ? pdfA4(v, f?.img || "", firmaT) : kind === "dich" ? pdfDich(v, f?.img || "", firmaT) : pdfThermal(v, f?.img || "", firmaT);
+    const { f, firmaT } = await firmeRapporto(v);
+    const tb = conTimbro(v) ? timbroCliente(v.cli) : null;
+    const doc = kind === "a4" ? pdfA4(v, f?.img || "", firmaT, tb) : kind === "dich" ? pdfDich(v, f?.img || "", firmaT, tb) : pdfThermal(v, f?.img || "", firmaT, tb);
     const safe = (s) => clean(s).replace(/[^\w.-]+/g, "_").slice(0, 40);
     const nome = `${kind === "dich" ? "Dichiarazione" : "Rapporto"}_${safe(v.numero)}_${safe(v.app?.matricola)}${kind === "80" ? "_80mm" : ""}.pdf`;
     const blob = doc.output("blob");
     if (UI.sheet?.pdf?.url) URL.revokeObjectURL(UI.sheet.pdf.url);
     const url = URL.createObjectURL(blob);
-    if (UI.sheet?.kind === "ver" && UI.sheet.id === id) { UI.sheet.pdf = { url, nome }; renderSheet(); }
+    if (UI.sheet?.kind === "ver" && UI.sheet.id === id) { UI.sheet.pdf = { url, nome, blob }; renderSheet(); }
     if (win && !win.closed) win.location.href = url;
   } catch (e) { win?.close(); apiError(e); }
+}
+
+/* ---------------- stampa diretta sulla termica ---------------- */
+function panelTermica(v) {
+  const p = btPref(), bt = btDisponibile(), st = UI.sheet?.bt || {};
+  const carta = [80, 58].map((n) => `<button data-act="bt-carta" data-v="${n}" aria-pressed="${p.carta === n}">${n} mm</button>`).join("");
+  return `<div class="panel"><h2>Stampante termica Bluetooth</h2>
+    <p class="faint" style="margin:0">${bt ? `Stampa il rapporto direttamente sulla stampantina, senza passare dal PDF. La prima volta scegli la stampante dall'elenco (deve essere accesa e vicina).${p.nome ? ` Ultima usata: <b>${esc(p.nome)}</b>.` : ""}`
+      : isAndroid() ? "Questo browser non vede le stampanti Bluetooth: apri BluCheck con Chrome, oppure usa RawBT qui sotto."
+      : "Su iPhone e iPad il browser non può collegarsi alle stampanti Bluetooth: usa «Condividi PDF 80 mm» e scegli l'app della stampante."}</p>
+    <div class="field"><span>Larghezza carta</span><div class="seg wide choose" role="group">${carta}</div></div>
+    <div class="row">${bt ? `<button class="btn primary" data-act="bt-stampa" data-id="${v.id}" ${st.busy ? "disabled" : ""}>${st.busy ? `Stampa in corso… ${Math.round((st.pct || 0) * 100)}%` : "Stampa sulla termica"}</button>${Termica.device ? `<button class="btn sm" data-act="bt-cambia" data-id="${v.id}">Cambia stampante</button>` : ""}` : ""}
+      ${isAndroid() ? `<button class="btn${bt ? " sm" : ""}" data-act="bt-rawbt" data-id="${v.id}">Stampa con RawBT</button>` : ""}
+      <button class="btn${bt ? " sm" : ""}" data-act="pdf80-share" data-id="${v.id}">Condividi PDF 80 mm</button></div>
+    ${bt ? `<label class="check"><input type="checkbox" data-act="bt-lenta" ${p.lenta ? "checked" : ""}> Modalità compatibile (più lenta): usala se la stampa esce tagliata o con righe strane</label>` : ""}
+    ${st.err ? `<div class="qrres"><b>Stampa non riuscita</b>${esc(st.err)}</div>` : ""}</div>`;
+}
+async function escposDi(id) {
+  const v = S.verifiche.find((x) => x.id === id); if (!v) throw new Error("Rapporto non trovato.");
+  const { f, firmaT } = await firmeRapporto(v);
+  return escposRapporto(v, f?.img || "", firmaT, conTimbro(v) ? timbroCliente(v.cli) : null, btPref().carta);
+}
+async function stampaTermica(id, scegli) {
+  const s = UI.sheet; if (!s || s.bt?.busy) return;
+  s.bt = { busy: true, pct: 0 }; renderSheet();
+  try {
+    if (scegli) await btCollega(true);
+    const bytes = await escposDi(id);
+    let last = 0; await btStampa(bytes, (p) => { if (p - last >= 0.05 || p === 1) { last = p; s.bt.pct = p; if (UI.sheet === s) renderSheet(); } });
+    s.bt = {}; toast("Rapporto inviato alla stampante");
+  } catch (e) {
+    const annullato = e?.name === "NotFoundError" && /cancel/i.test(e.message || "");
+    s.bt = annullato ? {} : { err: e?.name === "NetworkError" ? "La stampante non risponde: controlla che sia accesa, vicina e non collegata a un altro telefono, poi riprova." : e.message || String(e) };
+    if (e?.name === "NetworkError") { Termica.ch = null; }
+  }
+  if (UI.sheet === s) renderSheet();
+}
+async function pdfBlob(kind, id) {
+  const v = S.verifiche.find((x) => x.id === id); if (!v || !window.jspdf) throw new Error("Modulo PDF non caricato: ricarica la pagina.");
+  const { f, firmaT } = await firmeRapporto(v); const tb = conTimbro(v) ? timbroCliente(v.cli) : null;
+  const safe = (s) => clean(s).replace(/[^\w.-]+/g, "_").slice(0, 40);
+  return { blob: pdfThermal(v, f?.img || "", firmaT, tb).output("blob"), nome: `Rapporto_${safe(v.numero)}_${safe(v.app?.matricola)}_80mm.pdf`, titolo: `Rapporto ${v.numero}` };
 }
 
 /* ============================== eventi ============================== */
@@ -1186,6 +1243,14 @@ document.addEventListener("click", async (e) => {
       if (UI.form) refreshFormDyn(); else render();
     }); break;
     case "pdf": { const w = window.open("", "_blank"); makePdf(el.dataset.k, id, w); break; }
+    case "pdf-share": { const p = UI.sheet?.pdf; if (p?.blob) await condividiFile(p.blob, p.nome, p.nome.replace(/\.pdf$/, "")); break; }
+    case "pdf80-share": try { const r = await pdfBlob("80", id); await condividiFile(r.blob, r.nome, r.titolo); } catch (err) { apiError(err); } break;
+    case "ver-timbro": if (UI.sheet) { UI.sheet.timbro = el.checked; if (UI.sheet.pdf?.url) URL.revokeObjectURL(UI.sheet.pdf.url); UI.sheet.pdf = null; renderSheet(); } break;
+    case "bt-carta": ls.set(BT_PREF, { ...btPref(), carta: Number(el.dataset.v) }); renderSheet(); break;
+    case "bt-lenta": ls.set(BT_PREF, { ...btPref(), lenta: el.checked }); break;
+    case "bt-stampa": await stampaTermica(id, !Termica.device); break;
+    case "bt-cambia": await stampaTermica(id, true); break;
+    case "bt-rawbt": try { const b = await escposDi(id); location.href = rawbtUrl(b); setTimeout(() => toast("Se non si apre niente, installa RawBT dal Play Store e collega lì la stampante.", 6000), 1500); } catch (err) { apiError(err); } break;
     case "remind": copyReminder(id); break;
     case "go-abb": UI.tab = "impostazioni"; vaiAbb = true; history.replaceState(null, "", "#abbonamento"); UI.sheet = null; render(); break;
     case "save-profilo": try { const r = await api("PUT", "/api/me", { nome: $("#pfNome").value, cf: $("#pfCf").value, sigillo: $("#pfSigillo").value }); S.me = r.user; render(); toast("Profilo salvato"); } catch (err) { apiError(err); } break;
@@ -1219,6 +1284,7 @@ document.addEventListener("input", (e) => {
   if (t.dataset.bind) { UI[t.dataset.bind] = t.value; render(); return; }
   if (t.dataset.f && UI.form) {
     UI.form[t.dataset.f] = t.type === "checkbox" ? t.checked : t.value; saveDraft();
+    if (t.dataset.f === "timbro") refreshFormDyn();
     if (t.dataset.f === "apparecchioId") { const a = apparecchio(t.value); if (a) { UI.form.fwPresente = a.firmware || UI.form.fwPresente; const fe = $("#f_fwPresente"); if (fe) fe.value = UI.form.fwPresente; } refreshFormDyn(); }
     return;
   }
