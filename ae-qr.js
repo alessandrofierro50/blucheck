@@ -95,9 +95,9 @@ function parseAePage(html) {
 }
 
 const cache = new Map();
-async function leggiQrAe(url) {
+async function leggiQrAe(url, { ttl = 10 * 60000 } = {}) {
   if (!isAeUrl(url)) { const e = new Error("Il QR non porta al servizio dell'Agenzia delle Entrate."); e.status = 400; throw e; }
-  const c = cache.get(url); if (c && Date.now() - c.t < 10 * 60000) return c.v;
+  const c = cache.get(url); if (c && Date.now() - c.t < ttl) return c.v;
   const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 12000);
   let html;
   try {
@@ -110,7 +110,7 @@ async function leggiQrAe(url) {
   const v = parseAePage(html);
   if (!v.matricola) { const e = new Error("Pagina dell'Agenzia letta, ma senza i dati del dispositivo. Aprila dal telefono per controllarla."); e.status = 422; throw e; }
   cache.set(url, { t: Date.now(), v });
-  if (cache.size > 500) cache.delete(cache.keys().next().value);
+  if (cache.size > 2000) cache.delete(cache.keys().next().value);
   return v;
 }
 
