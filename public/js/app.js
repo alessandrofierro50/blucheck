@@ -236,6 +236,7 @@ const AIUTI = {
       ["Tecnici", "Chi entra e quanti ne prevede il tuo abbonamento."],
       ["Abbonamento", "Scadenza e rinnovo con carta, PayPal o bonifico."],
       ["Esporta dati", "Tutto l'archivio dell'azienda, da conservare o da portare altrove."],
+      ["Stampa foto sulla termica", "Apre la pagina /foto: la foto si adatta alla larghezza della carta (80 mm = 576 punti), diventa bianco e nero adatto alla termica e si stampa via Bluetooth, USB/COM, RawBT o driver."],
     ],
   },
 };
@@ -455,7 +456,9 @@ function viewImpostazioni() {
     <div class="field"><span>La tua firma</span><div class="sigbox" data-act="sign-tecnico" id="sigProfilo">${S.firmaTecnico ? `<img src="${S.firmaTecnico}" alt="La tua firma">` : `<span>Tocca per firmare</span>`}</div></div>
     <div class="row"><button class="btn primary" data-act="save-profilo">Salva profilo</button><button class="btn" data-act="chg-pwd">Cambia password</button><button class="btn ghost" data-act="logout">Esci</button></div>
     <p class="faint" style="margin:0">Accesso: ${esc(me.email)}</p></div>
-  <div class="panel" id="provaTermica">${panelProvaTermica()}</div>`;
+  <div class="panel" id="provaTermica">${panelProvaTermica()}</div>
+  <div class="panel"><h2>Stampa foto sulla termica</h2><p class="faint" style="margin:0">Scatta o scegli una foto: si adatta alla larghezza della carta (80 mm), diventa bianco e nero ottimizzato per la termica (contrasto, gamma, retinatura) e si stampa con Bluetooth, USB/COM, RawBT o il driver. Funziona dal telefono e dal computer e si può aggiungere alla schermata Home.</p>
+    <div class="row"><a class="btn primary" href="/foto">Apri «Foto su termica»</a></div></div>`;
   if (!isAdmin()) return h;
   h += `<div class="panel"><h2>Dati del laboratorio</h2><p class="faint" style="margin:0">Compaiono nell'intestazione dei rapporti e nella dichiarazione.</p>
     <div class="grid2">${f("lbRagione", "Ragione sociale", L.ragione)}${f("lbPiva", "Partita IVA", L.piva, "text", 'class="mono"')}${f("lbIndirizzo", "Indirizzo", L.indirizzo)}${f("lbCap", "CAP / Località / Prov.", L.cap)}${f("lbTel", "Telefono", L.telefono, "tel")}${f("lbEmail", "Email (riceve gli avvisi)", L.email, "email")}${f("lbLuogo", "Luogo predefinito sui rapporti", L.luogo)}${f("lbPre", "Giorni di preavviso scadenze", L.preavviso, "number", 'min="1" max="365"')}</div>
