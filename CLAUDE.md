@@ -37,7 +37,9 @@ Questo software fa parte del progetto BluCode Informatica. La memoria condivisa 
       frecce/Invio/clic/Esc; «Nuovo» crea cliente (PUT /api/dati/clienti/:id), apparecchio (esercente da un secondo elenco) o piano
       (POST /api/su/piani) e lo lascia scelto. A tutto schermo sotto 640 px. Non c'è scelta del tecnico (il rapporto è di chi lo compila).
 - [x] Clienti «cessato» e «verificato» + import dello storico (2026-11-18, per CDL Italia): `cessato` sul cliente toglie per sempre i suoi
-      apparecchi dalle scadenze (e dal CSV); `verificato` (+ `verificatoIl`) è il controllo iniziale fatto dal laboratorio (aggiornamenti, verificazione periodica, DGFE
+      apparecchi dalle scadenze (e dal CSV); si riattiva dalla scheda del cliente (`riattivaCliente`): «stesso apparecchio» = i registratori
+      non dismessi tornano nelle scadenze con le date di prima; «apparecchio nuovo» = i vecchi diventano `dismesso` (restano in archivio coi
+      rapporti) e si apre la scheda del nuovo registratore; date in `cessatoIl` / `riattivatoIl`; `verificato` (+ `verificatoIl`) è il controllo iniziale fatto dal laboratorio (aggiornamenti, verificazione periodica, DGFE
       annuale sui DTR); gli importati (`importato`) partono non spuntati con l'etichetta «DA VERIFICARE».
       Caselle in «Modifica cliente», etichette nella lista e nella scheda, con le date dello storico (`storicoVerifiche`).
       `POST /api/importa-storico` (admin dell'azienda, Impostazioni > «Importa storico»): file JSON `formato: "blucheck-storico-1"` con

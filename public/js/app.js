@@ -190,7 +190,7 @@ const AIUTI = {
       ["Sede", "Dove sta l'apparecchio: serve al tecnico per arrivarci."],
       ["Telefono", "Per avvisare quando la verificazione sta per scadere."],
       ["Software gestionale", "Se il cliente usa un gestionale e quale: chi risponde «Sì» compare nella sezione Aggiornamenti."],
-      ["Cliente cessato", "L'attività ha chiuso o non è più vostro cliente: i suoi registratori escono per sempre dalle scadenze."],
+      ["Cliente cessato", "L'attività ha chiuso o non è più vostro cliente: i suoi registratori escono dalle scadenze. Se torna, nella scheda del cliente «Riattiva con lo stesso apparecchio» (le scadenze riprendono) o «Riattiva con un apparecchio nuovo» (il vecchio resta in archivio come dismesso)."],
       ["Verificato", "Spuntalo dopo il controllo iniziale del cliente: aggiornamenti del registratore, verificazione periodica e, sui DTR, scheda di memoria (DGFE) annuale. Resta la data del controllo."],
     ],
   },
@@ -727,7 +727,9 @@ function sheetCli() {
   const apps = S.apparecchi.filter((a) => a.clienteId === c.id);
   const sv = (c.storicoVerifiche || []).slice().sort().reverse();
   return head(esc(c.ragione), `<button class="btn sm" data-act="edit-cli" data-id="${c.id}">Modifica</button>`) + `<div class="sheet-body gut">
-    ${c.cessato ? `<div class="banner"><span><b>Cliente cessato:</b> i suoi registratori non compaiono più nelle scadenze.</span></div>` : ""}
+    ${c.cessato ? `<div class="banner" style="flex-direction:column;align-items:stretch"><span><b>Cliente cessato:</b> i suoi registratori non compaiono più nelle scadenze. Se torna cliente puoi riattivarlo.</span>
+      <div class="row"><button class="btn sm" data-act="riattiva-stesso" data-id="${c.id}">Riattiva con lo stesso apparecchio</button><button class="btn sm" data-act="riattiva-nuovo" data-id="${c.id}">Riattiva con un apparecchio nuovo</button></div></div>` : ""}
+    ${c.riattivatoIl && !c.cessato ? `<div class="banner info"><span><b>Riattivato il ${fmtD(c.riattivatoIl)}</b>${c.cessatoIl ? ` (era cessato dal ${fmtD(c.cessatoIl)})` : ""}.</span></div>` : ""}
     ${c.verificato ? `<div class="banner ok"><span><b>Verificato${c.verificatoIl ? ` il ${fmtD(c.verificatoIl)}` : ""}:</b> controllo iniziale fatto (aggiornamenti, verificazione periodica, DGFE).</span></div>` : c.importato && !c.cessato ? `<div class="banner info"><span><b>Da verificare:</b> cliente preso dallo storico. Controlla aggiornamenti, verificazione periodica e DGFE (annuale sui DTR), poi spunta «Verificato».</span></div>` : ""}
     <div class="panel"><dl class="kv"><dt>P.IVA</dt><dd class="mono">${esc(c.piva || "—")}</dd><dt>Codice fiscale</dt><dd class="mono">${esc(c.cf || "—")}</dd>
       <dt>SDI / PEC</dt><dd><span class="mono">${esc(c.sdi || "—")}</span>${c.pec ? " · " + esc(c.pec) : ""}</dd><dt>Domicilio</dt><dd>${esc(c.domicilio || "—")}</dd>
@@ -1142,6 +1144,7 @@ document.addEventListener("click", async (e) => {
     case "qr-new": if (!guardWrite()) break; openSheet({ kind: "app-edit", id: null, draft: { clienteId: "", nuovoCliente: {} }, qr: null }); scanQR("app"); break;
     case "edit-app": if (!guardWrite()) break; openSheet({ kind: "app-edit", id, draft: JSON.parse(JSON.stringify(apparecchio(id))), qr: null }); break;
     case "new-cli": if (!guardWrite()) break; openSheet({ kind: "cli-edit", id: null, draft: {} }); break;
+    case "riattiva-stesso": case "riattiva-nuovo": await riattivaCliente(id, act === "riattiva-nuovo"); break;
     case "edit-cli": if (!guardWrite()) break; openSheet({ kind: "cli-edit", id, draft: { ...cliente(id) } }); break;
     case "qr-scan": scanQR("app"); break;
     case "qr-check": scanQR("check"); break;
@@ -1280,11 +1283,30 @@ async function importaStorico(conferma) {
     }
   } catch (err) { if (err instanceof SyntaxError) toast("Il file non è un JSON valido."); else apiError(err); }
 }
+// Riattivazione di un cliente cessato. Stesso apparecchio: i suoi registratori (non dismessi) tornano nelle scadenze con le date di prima.
+// Apparecchio nuovo: i registratori di prima diventano «dismessi» (restano in archivio con i loro rapporti) e si apre la scheda del nuovo.
+async function riattivaCliente(id, nuovo) {
+  if (!guardWrite()) return;
+  const c = cliente(id); if (!c) return;
+  const oggi = todayISO();
+  try {
+    if (nuovo) for (const a of S.apparecchi.filter((x) => x.clienteId === id && !x.dismesso))
+      await put("apparecchi", a.id, { ...a, dismesso: true, note: [a.note, `DISMESSO IL ${fmtD(oggi)}: CLIENTE RIATTIVATO CON UN APPARECCHIO NUOVO.`].filter(Boolean).join("\n") });
+    await put("clienti", id, { ...c, cessato: false, riattivatoIl: oggi });
+    toast(nuovo ? "Cliente riattivato: inserisci il nuovo registratore" : "Cliente riattivato: i suoi registratori tornano nelle scadenze");
+    render();
+    if (nuovo) openSheet({ kind: "app-edit", id: null, draft: { clienteId: id, nuovoCliente: {} }, qr: null });
+    else openSheet({ kind: "cli", id });
+  } catch (err) { apiError(err); }
+}
 async function saveCli() {
   if (!guardWrite()) return;
   const s = UI.sheet, d = s.draft; if (!d.ragione?.trim()) return toast("Inserisci la ragione sociale.");
   const id = s.id || uid();
   const ver = d.verificato ? { verificatoIl: d.verificatoIl || todayISO() } : { verificatoIl: "" };
+  const prima = s.id ? cliente(s.id) : null;
+  if (d.cessato && !prima?.cessato) ver.cessatoIl = todayISO();
+  if (!d.cessato && prima?.cessato) ver.riattivatoIl = todayISO();
   try { await put("clienti", id, { ...d, ...ver, id, ragione: d.ragione.trim() }); toast("Cliente salvato"); render(); openSheet({ kind: "cli", id }); } catch (err) { apiError(err); }
 }
 async function copyReminder(id) {
