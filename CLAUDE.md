@@ -80,7 +80,7 @@ Questo software fa parte del progetto BluCode Informatica. La memoria condivisa 
       «Registratori da abbinare all'abbonamento» (`rt_abb`: non decisi o più registratori col software dei canoni). Stato di ogni matricola in elenco e TXT/PDF.
       Export «Per Ital Retail» (PDF lettera e CSV per Excel; `righeItalRetail`/`exportItalRetail` in app.js, `pdfItalRetail` + destinatario `ITAL_RETAIL`
       in pdf.js): matricole dei registratori col software dei clienti «non installabile» (solo cassa esclusi, senza matricola contati e avvisati),
-      con software e motivo (le note interne no), per chiedere a Italretail/Zucchetti di non rinnovare il Basic Support. Mittente = dati del laboratorio. Prova: `test/abbonamenti.mjs`.
+      solo matricola, software e motivo (niente nome/P.IVA del cliente né note), per chiedere a Italretail/Zucchetti di non rinnovare il Basic Support. Mittente = dati del laboratorio. Prova: `test/abbonamenti.mjs`.
       I CSV con i dati dei clienti NON vanno nel repository.
 - [x] Planning (2026-11-18): sezione «Planning» (`public/js/planning.js`, caricato prima di `app.js`; stato in `PL`, eventi propri su
       `data-pl-act` / `data-pl`) con il lavoro da fare in un giorno, in un mese o da data a data, raggruppato per giorno e cliente:

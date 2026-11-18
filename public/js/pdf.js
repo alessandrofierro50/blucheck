@@ -471,11 +471,11 @@ function pdfItalRetail(righe, L) {
   y += txt(["Spett.le", ...ITAL_RETAIL].join("\n"), X + W / 2, y - 4, W / 2, 10, "normal") + 4;
   y += txt("Oggetto: matricole con software non aggiornabile - richiesta di non rinnovo del Basic Support", X, y, W, 10.5, "bold") + 3;
   y += txt(`Per i registratori telematici elencati sotto (${righe.length} ${righe.length === 1 ? "matricola" : "matricole"}) non è possibile installare gli aggiornamenti del software, per il motivo indicato. Chiediamo quindi di non rinnovare il Basic Support per queste matricole.`, X, y, W, 9.5) + 5;
-  const cols = [["Matricola", 34], ["Software", 38], ["Motivazione", 58], ["Cliente", W - 130]];
+  const cols = [["Matricola", 45], ["Software", 60], ["Motivazione", W - 105]];
   const header = () => { let x = X; for (const [l, w] of cols) { d.setFillColor(235); d.rect(x, y, w, 7, "FD"); txt(l, x + 1.5, y + 1.6, w - 3, 8.5, "bold"); x += w; } y += 7; };
   header();
   for (const r of righe) {
-    const cells = [[r.matricola, "bold"], [r.software || "non indicato", "normal"], [r.motivo, "normal"], [r.cliente + (r.piva ? " - P.IVA " + r.piva : ""), "normal"]];
+    const cells = [[r.matricola, "bold"], [r.software || "non indicato", "normal"], [r.motivo, "normal"]];
     const h = Math.max(7, Math.max(...cells.map(([s0, st], i) => meas(s0, cols[i][1] - 3, 8.5, st))) + 3);
     if (y + h > 297 - M - 20) { d.addPage(); y = M; header(); }
     let x = X; cells.forEach(([s0, st], i) => { const w = cols[i][1]; d.rect(x, y, w, h); txt(s0, x + 1.5, y + 1.4, w - 3, 8.5, st); x += w; });

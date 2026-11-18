@@ -217,7 +217,7 @@ const AIUTI = {
       ["Registratori e abbonamento", "Nella scheda del cliente indichi per ogni registratore se lavora col software (e quale: è quello coperto dall'abbonamento) o se è usato solo come cassa. Se i canoni pagati bastano per tutti i registratori, il collegamento si fa da solo all'import degli abbonamenti o dei QR."],
       ["Abbonamento da rinnovare", "Clienti che hanno pagato l'abbonamento software negli anni passati ma non ancora per l'anno in corso."],
       ["Esporta TXT / PDF", "L'elenco con i filtri e la ricerca attivi, da stampare o mandare."],
-      ["Per Ital Retail", "Elenco delle matricole col software che non si può aggiornare (clienti «non installabile»: matricola, software, motivazione), per chiedere a Ital Retail di non rinnovare il Basic Support. Esclusi i registratori «solo cassa» e quelli senza matricola; le note interne non escono."],
+      ["Per Ital Retail", "Elenco delle matricole col software che non si può aggiornare (clienti «non installabile»), con solo matricola, software e motivazione, per chiedere a Ital Retail di non rinnovare il Basic Support. Il nome del cliente non compare. Esclusi i registratori «solo cassa» e quelli senza matricola."],
     ],
     consiglio: "Per far comparire un cliente qui, apri la sua scheda in Clienti e rispondi «Sì» a «Usa un software gestionale?».",
   },
@@ -480,7 +480,7 @@ function exportAggTxt() {
 }
 /* Export per Ital Retail: matricole dei registratori col software che non si può aggiornare (cliente «non installabile»),
    per chiedere di non rinnovare il Basic Support. Registratori «solo cassa» esclusi (non hanno software); senza matricola non si possono
-   indicare: si contano e si avvisa. Le note interne del cliente non escono, solo il motivo. Non dipende dai filtri della sezione. */
+   indicare: si contano e si avvisa. Escono solo matricola, software e motivo: niente nome o P.IVA del cliente, niente note interne. Non dipende dai filtri della sezione. */
 function righeItalRetail() {
   const out = [], senza = [];
   for (const c of S.clienti.filter(usaGestionale)) {
@@ -488,7 +488,7 @@ function righeItalRetail() {
     const motivo = MOTIVI_AGG[c.aggSw.motivo] || "Motivo non indicato";
     for (const a of rtCli(c).filter((x) => x.abbSw !== false)) {
       if (!a.matricola) { senza.push(c.ragione); continue; }
-      out.push({ matricola: a.matricola, software: a.software || c.software || "", motivo, cliente: c.ragione || "", piva: c.piva || "", data: c.aggSw.data || "" });
+      out.push({ matricola: a.matricola, software: a.software || c.software || "", motivo });
     }
   }
   out.sort((x, y) => x.matricola.localeCompare(y.matricola));
@@ -502,8 +502,7 @@ function exportItalRetail(tipo) {
     scaricaFile(`Ital_Retail_non_rinnovo_Basic_Support_${todayISO()}.pdf`, pdfItalRetail(righe, lab()).output("blob"));
   } else {
     const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const csv = [["Matricola", "Software", "Motivazione", "Cliente", "Partita IVA", "Data"].map(q).join(";"),
-      ...righe.map((r) => [r.matricola, r.software, r.motivo, r.cliente, r.piva, r.data ? fmtD(r.data) : ""].map(q).join(";"))].join("\r\n");
+    const csv = [["Matricola", "Software", "Motivazione"].map(q).join(";"), ...righe.map((r) => [r.matricola, r.software, r.motivo].map(q).join(";"))].join("\r\n");
     scaricaFile(`Ital_Retail_non_rinnovo_Basic_Support_${todayISO()}.csv`, new Blob(["\ufeff" + csv + "\r\n"], { type: "text/csv;charset=utf-8" }));
   }
   toast(`${righe.length} matricole esportate${senza.length ? `; ${senza.length} ${senza.length === 1 ? "cliente ha" : "clienti hanno"} registratori senza matricola, non inclusi` : ""}`);
