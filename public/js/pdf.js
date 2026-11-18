@@ -458,6 +458,38 @@ function pdfAggiornamenti(rows, L, titolo) {
   return d;
 }
 
+// destinatario dell'elenco (dati pubblici del registro imprese: Italretail Srl, P.IVA 01382910352, sede legale a Reggio Emilia)
+const ITAL_RETAIL = ["ITALRETAIL S.R.L. - ZUCCHETTI", "Via del Paracadutista 11/11 A/B", "42122 Reggio nell'Emilia (RE)", "P.IVA 01382910352"];
+/* Elenco per Ital Retail (sezione «Aggiornamenti»): matricole con software non aggiornabile, per il non rinnovo del Basic Support. */
+function pdfItalRetail(righe, L) {
+  const { jsPDF } = window.jspdf; const d = new jsPDF({ unit: "mm", format: "a4" });
+  const M = 14, W = 210 - 2 * M, X = M; let y = M;
+  const txt = (s, x, yy, w, fs = 8, st = "normal", align = "left") => { d.setFont("helvetica", st); d.setFontSize(fs); const lines = d.splitTextToSize(clean(s), w); d.text(lines, align === "center" ? x + w / 2 : x, yy + LH(fs) * 0.8, { align }); return lines.length * LH(fs); };
+  const meas = (s, w, fs = 8, st = "normal") => { d.setFont("helvetica", st); d.setFontSize(fs); return d.splitTextToSize(clean(s), w).length * LH(fs); };
+  d.setLineWidth(0.2); d.setDrawColor(40);
+  y += txt([L.ragione, L.indirizzo, L.cap, L.piva ? "P.IVA " + L.piva : "", L.telefono ? "Tel. " + L.telefono : "", L.email || ""].filter(Boolean).join("\n"), X, y, W / 2, 9, "bold") + 6;
+  y += txt(["Spett.le", ...ITAL_RETAIL].join("\n"), X + W / 2, y - 4, W / 2, 10, "normal") + 4;
+  y += txt("Oggetto: matricole con software non aggiornabile - richiesta di non rinnovo del Basic Support", X, y, W, 10.5, "bold") + 3;
+  y += txt(`Per i registratori telematici elencati sotto (${righe.length} ${righe.length === 1 ? "matricola" : "matricole"}) non è possibile installare gli aggiornamenti del software, per il motivo indicato. Chiediamo quindi di non rinnovare il Basic Support per queste matricole.`, X, y, W, 9.5) + 5;
+  const cols = [["Matricola", 45], ["Software", 60], ["Motivazione", W - 105]];
+  const header = () => { let x = X; for (const [l, w] of cols) { d.setFillColor(235); d.rect(x, y, w, 7, "FD"); txt(l, x + 1.5, y + 1.6, w - 3, 8.5, "bold"); x += w; } y += 7; };
+  header();
+  for (const r of righe) {
+    const cells = [[r.matricola, "bold"], [r.software || "non indicato", "normal"], [r.motivo, "normal"]];
+    const h = Math.max(7, Math.max(...cells.map(([s0, st], i) => meas(s0, cols[i][1] - 3, 8.5, st))) + 3);
+    if (y + h > 297 - M - 20) { d.addPage(); y = M; header(); }
+    let x = X; cells.forEach(([s0, st], i) => { const w = cols[i][1]; d.rect(x, y, w, h); txt(s0, x + 1.5, y + 1.4, w - 3, 8.5, st); x += w; });
+    y += h;
+  }
+  if (y + 24 > 297 - M) { d.addPage(); y = M; }
+  y += 8; txt(`${L.luogo || ""}${L.luogo ? ", " : ""}${fmtD(todayISO())}`, X, y, W / 2, 9.5);
+  txt("Timbro e firma", X + W / 2, y, W / 2, 9.5, "normal", "center");
+  d.line(X + W / 2 + 10, y + 18, X + W - 10, y + 18);
+  const n = d.getNumberOfPages();
+  for (let i = 1; i <= n; i++) { d.setPage(i); d.setFont("helvetica", "normal"); d.setFontSize(7); d.setTextColor(110); d.text(`pagina ${i} di ${n}`, 210 - M, 297 - 6, { align: "right" }); d.setTextColor(0); }
+  return d;
+}
+
 /* Planning (sezione «Planning» di app.js): A4 con un blocco per giorno e una riga per cliente, caselle da spuntare. */
 function pdfPlanning({ p, righe, daFissare }, L, titolo) {
   const { jsPDF } = window.jspdf; const d = new jsPDF({ unit: "mm", format: "a4" });
