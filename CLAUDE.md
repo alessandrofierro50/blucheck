@@ -60,6 +60,19 @@ Questo software fa parte del progetto BluCode Informatica. La memoria condivisa 
       e lo stato in `aggSw` = { stato: aggiornato | non_installabile | '', motivo: hardware | non_paga (obbligatorio se non installabile), data, note, da }.
       Filtri da fare/aggiornati/non installabili, ricerca, export TXT (`exportAggTxt`) e PDF A4 (`pdfAggiornamenti` in `public/js/pdf.js`) con i filtri attivi.
       Nessuna modifica al database: i clienti sono documenti JSON in `dati` e i campi nuovi si aggiungono e basta.
+- [x] Abbonamenti software (2026-11-18, per CDL Italia: canoni annuali venduti in BluGest con gli articoli ABBITAL_<anno>): Impostazioni >
+      «Importa abbonamenti software» legge nel browser gli export CSV di BluGest «Vendite › Storico articolo» (`;`, colonne Data, Documento,
+      Soggetto, Quantità, Importo; `csvRighe`/`leggiCsvAbbonamenti` in `public/js/app.js`), uno per anno: l'anno di competenza è quello del codice
+      articolo, preso dal nome del file (casella modificabile), NON dalla data della fattura (il canone 2025 si fattura anche nel 2026).
+      `POST /api/importa-abbonamenti` (admin, `formato: "blucheck-abbonamenti-1"`, `anni: [{anno, righe:[{soggetto, documento, data, quantita, importo}]}]`,
+      `abbinamenti` {nome BluGest: clienteId | "nuovo" | "ignora"}, `conferma`): le quantità si sommano per cliente e anno (le note di credito sono
+      negative e stornano), somma 0 = niente abbonamento; ogni anno del file sostituisce quello in BluCheck (anni non più nel file si tolgono).
+      Cliente per ragione sociale normalizzata o per un nome BluGest già abbinato (`nomiBlugest`, salvato alla conferma); i non trovati si scelgono nel
+      riepilogo («Probabile» = `proponiCliente`, parole in comune). Sul cliente `abbSw` = {"<anno>": {canoni, importo, documenti:[…]}}, `gestionale = "si"`;
+      «nuovo» crea un cliente con la sola ragione sociale. Conferma: backup `data/backup/blucheck-prima-import-abbonamenti-*.db` e una transazione.
+      In «Aggiornamenti» etichette «Abb. <anno>», riquadro/filtro «Abbonamento <anno corrente> da rinnovare» (pagato negli anni passati, non quest'anno),
+      tabella «Abbonamento software» nella scheda aggiornamenti e nella scheda cliente, anni anche in TXT/PDF. Prova: `test/abbonamenti.mjs`.
+      I CSV con i dati dei clienti NON vanno nel repository.
 - [x] Planning (2026-11-18): sezione «Planning» (`public/js/planning.js`, caricato prima di `app.js`; stato in `PL`, eventi propri su
       `data-pl-act` / `data-pl`) con il lavoro da fare in un giorno, in un mese o da data a data, raggruppato per giorno e cliente:
       verificazioni periodiche e DGFE da `allScadenze()` (cessati e dismessi esclusi) e aggiornamenti software «da fare» (`statoAgg`),
