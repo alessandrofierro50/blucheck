@@ -73,7 +73,7 @@ main{max-width:1100px;margin:0 auto;padding-block:18px 120px;display:flex;flex-d
 .chips{display:flex;gap:6px;flex-wrap:wrap}
 .chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 12px;font-size:13px;font-weight:600;cursor:pointer;color:var(--ink-2)}
 .chip[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
-input[type=text],input[type=date],input[type=time],input[type=tel],input[type=email],input[type=number],input[type=search],input[type=password],select,textarea{width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:var(--r);padding:9px 11px;min-height:40px}
+input[type=text],input[type=date],input[type=month],input[type=time],input[type=tel],input[type=email],input[type=number],input[type=search],input[type=password],select,textarea{width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:var(--r);padding:9px 11px;min-height:40px}
 textarea{min-height:70px;resize:vertical}
 .list{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .item{display:grid;grid-template-columns:6px minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 14px 12px 0;border-top:1px solid var(--line);cursor:pointer;background:none;border-left:0;border-right:0;border-bottom:0;text-align:left;width:100%;color:var(--ink)}
@@ -202,3 +202,14 @@ table.t td.num,table.t th.num{text-align:right;font-variant-numeric:tabular-nums
   .lk-search .btn{padding-inline:10px}
 }
 @media print{.lk-wrap,.lk-btn{display:none}}
+
+/* Planning */
+.pl-day{font-size:15px;margin:14px 0 -4px}
+.pl-day.giorno::first-letter{text-transform:uppercase}
+.pl-day.oggi{color:var(--accent)} .pl-day.bad{color:var(--bad)}
+.pl-nav{display:flex;gap:6px;align-items:center;flex-wrap:nowrap;min-width:0}
+.pl-nav input{min-width:0;width:auto}
+.pl-range{display:flex;gap:8px;flex-wrap:wrap;min-width:0}
+.pl-range label{display:flex;gap:6px;align-items:center}
+@media (max-width:640px){.pl-nav{width:100%}.pl-nav>input{flex:1}.pl-range{flex:1}.pl-range label{flex:1 1 140px}.pl-range input{flex:1}}
+.stat.pl-stat{cursor:default}

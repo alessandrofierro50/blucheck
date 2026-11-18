@@ -223,3 +223,53 @@ function pdfAggiornamenti(rows, L, titolo) {
   for (let i = 1; i <= n; i++) { d.setPage(i); d.setFont("helvetica", "normal"); d.setFontSize(7); d.setTextColor(110); d.text(`BluCheck - pagina ${i} di ${n}`, 210 - M, 297 - 6, { align: "right" }); d.setTextColor(0); }
   return d;
 }
+
+/* Planning (sezione «Planning» di app.js): A4 con un blocco per giorno e una riga per cliente, caselle da spuntare. */
+function pdfPlanning({ p, righe, daFissare }, L, titolo) {
+  const { jsPDF } = window.jspdf; const d = new jsPDF({ unit: "mm", format: "a4" });
+  const M = 12, W = 210 - 2 * M, X = M; let y = M;
+  const txt = (s, x, yy, w, fs = 8, st = "normal", align = "left") => { d.setFont("helvetica", st); d.setFontSize(fs); const lines = d.splitTextToSize(clean(s), w); d.text(lines, align === "center" ? x + w / 2 : x, yy + LH(fs) * 0.8, { align }); return lines.length * LH(fs); };
+  const meas = (s, w, fs = 8, st = "normal") => { d.setFont("helvetica", st); d.setFontSize(fs); return d.splitTextToSize(clean(s), w).length * LH(fs); };
+  d.setLineWidth(0.2); d.setDrawColor(40);
+  const lw = 62, tw = W - lw;
+  const labTxt = [L.ragione, L.indirizzo, L.cap, L.piva ? "P.I. " + L.piva : "", L.telefono ? "Tel. " + L.telefono : ""].filter(Boolean).join("\n");
+  const nLav = righe.reduce((n, g) => n + g.lavori.length, 0) + daFissare.length;
+  const sub = `Stampato il ${fmtD(todayISO())} - ${nLav} ${nLav === 1 ? "lavoro" : "lavori"}`;
+  const hh = Math.max(meas(labTxt, lw - 4, 9, "bold"), meas(titolo.toUpperCase(), tw - 4, 10.5, "bold") + LH(8) + 2) + 6;
+  d.rect(X, y, lw, hh); d.rect(X + lw, y, tw, hh);
+  txt(labTxt, X + 2, y + 3, lw - 4, 9, "bold");
+  const th = txt(titolo.toUpperCase(), X + lw + 2, y + 3, tw - 4, 10.5, "bold", "center");
+  txt(sub, X + lw + 2, y + 4 + th, tw - 4, 8, "normal", "center");
+  y += hh + 4;
+  const cols = [["Cliente", 62], ["Dove", 46], ["Lavori da fare", W - 108 - 14], ["Fatto", 14]];
+  const header = () => { let x = X; for (const [l, w] of cols) { d.setFillColor(235); d.rect(x, y, w, 6.5, "FD"); txt(l, x + 1.5, y + 1.4, w - 3, 8, "bold"); x += w; } y += 6.5; };
+  const titoloGiorno = (s) => { if (y + 6.5 + 7 + 10 > 297 - M) { d.addPage(); y = M; } d.setFillColor(215); d.rect(X, y, W, 7, "FD"); txt(s, X + 2, y + 1.7, W - 4, 9, "bold"); y += 7; header(); };
+  const giornoTxt = (iso) => { const [yy, mm, dd] = iso.split("-").map(Number); const g = ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"][new Date(yy, mm - 1, dd).getDay()]; return `${g} ${fmtD(iso)}`; };
+  const appTxt = (a) => (a.modello || a.matricola ? `${a.modello || ""}${a.matricola ? " mat. " + a.matricola : ""}`.trim() : "registratore da completare");
+  const riga = (cells) => {
+    const hs = cells.map((parts, i) => parts.reduce((h, [s, stl, fs]) => h + (s ? meas(s, cols[i][1] - 3, fs, stl) : 0), 0));
+    const h = Math.max(8, Math.max(...hs) + 3);
+    if (y + h > 297 - M) { d.addPage(); y = M; header(); }
+    let x = X;
+    cells.forEach((parts, i) => { const w = cols[i][1]; d.rect(x, y, w, h); let yy = y + 1.4; for (const [s, stl, fs] of parts) if (s) yy += txt(s, x + 1.5, yy, w - 3, fs, stl); x += w; });
+    d.rect(X + W - 14 + 4.5, y + h / 2 - 2.5, 5, 5);
+    y += h;
+  };
+  const cliente = (g) => {
+    const dove = [...new Set(g.lavori.filter((l) => l.a).map((l) => [l.a.indirizzo, l.a.localita].filter(Boolean).join(", ")).filter(Boolean))].join("; ") || g.c?.domicilio || "";
+    const lav = g.lavori.map((l) => (l.tipo === "SW" ? `Aggiornamento software${g.c?.software ? " (" + g.c.software + ")" : ""}` : `${l.tipo === "VP" ? "Verificazione periodica" : "DGFE"} - ${appTxt(l.a)}${g.arretrato ? " - scaduta il " + fmtD(l.data) : ""}`)).join("\n");
+    riga([[[g.c?.ragione || "Cliente non indicato", "bold", 8.5], [g.c?.telefono ? "Tel. " + g.c.telefono : "", "normal", 7.5]], [[dove, "normal", 7.5]], [[lav, "normal", 8]], []]);
+  };
+  const arr = righe.filter((g) => g.arretrato), nel = righe.filter((g) => !g.arretrato);
+  if (arr.length) { titoloGiorno(`Arretrati: scaduti prima del ${fmtD(p.da)}`); arr.forEach(cliente); y += 4; }
+  let giorno = "";
+  for (const g of nel) { if (g.data !== giorno) { if (giorno) y += 4; giorno = g.data; titoloGiorno(giornoTxt(giorno)); } cliente(g); }
+  if (!nel.length) { d.rect(X, y, W, 8); txt("Nessuna scadenza nel periodo.", X + 2, y + 2, W - 4, 8.5); y += 8; }
+  if (daFissare.length) {
+    y += 4; titoloGiorno("Aggiornamenti software da fissare (clienti senza scadenze nel periodo)");
+    for (const c of daFissare) riga([[[c.ragione || "", "bold", 8.5], [c.telefono ? "Tel. " + c.telefono : "", "normal", 7.5]], [[c.domicilio || "", "normal", 7.5]], [[`Aggiornamento software${c.software ? " (" + c.software + ")" : ""}`, "normal", 8]], []]);
+  }
+  const n = d.getNumberOfPages();
+  for (let i = 1; i <= n; i++) { d.setPage(i); d.setFont("helvetica", "normal"); d.setFontSize(7); d.setTextColor(110); d.text(`BluCheck - pagina ${i} di ${n}`, 210 - M, 297 - 6, { align: "right" }); d.setTextColor(0); }
+  return d;
+}

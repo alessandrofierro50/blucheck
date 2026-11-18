@@ -58,3 +58,10 @@ Questo software fa parte del progetto BluCode Informatica. La memoria condivisa 
       e lo stato in `aggSw` = { stato: aggiornato | non_installabile | '', motivo: hardware | non_paga (obbligatorio se non installabile), data, note, da }.
       Filtri da fare/aggiornati/non installabili, ricerca, export TXT (`exportAggTxt`) e PDF A4 (`pdfAggiornamenti` in `public/js/pdf.js`) con i filtri attivi.
       Nessuna modifica al database: i clienti sono documenti JSON in `dati` e i campi nuovi si aggiungono e basta.
+- [x] Planning (2026-11-18): sezione «Planning» (`public/js/planning.js`, caricato prima di `app.js`; stato in `PL`, eventi propri su
+      `data-pl-act` / `data-pl`) con il lavoro da fare in un giorno, in un mese o da data a data, raggruppato per giorno e cliente:
+      verificazioni periodiche e DGFE da `allScadenze()` (cessati e dismessi esclusi) e aggiornamenti software «da fare» (`statoAgg`),
+      agganciati alla prima visita del cliente nel periodo; quelli dei clienti senza scadenze nel periodo stanno in fondo, «da fissare».
+      Arretrati (scaduti prima del periodo) in cima, si possono togliere. Tasti Visualizza tutti / Verifiche / DGFE / Aggiornamento software
+      (anche cliccando i riquadri). Export TXT (`exportPlanningTxt`) e PDF A4 con caselle «Fatto» (`pdfPlanning` in `public/js/pdf.js`).
+      Solo frontend: nessuna modifica al server o al database.
