@@ -37,13 +37,21 @@ Questo software fa parte del progetto BluCode Informatica. La memoria condivisa 
       frecce/Invio/clic/Esc; «Nuovo» crea cliente (PUT /api/dati/clienti/:id), apparecchio (esercente da un secondo elenco) o piano
       (POST /api/su/piani) e lo lascia scelto. A tutto schermo sotto 640 px. Non c'è scelta del tecnico (il rapporto è di chi lo compila).
 - [x] Clienti «cessato» e «verificato» + import dello storico (2026-11-18, per CDL Italia): `cessato` sul cliente toglie per sempre i suoi
-      apparecchi dalle scadenze (e dal CSV); `verificato` (+ `verificatoIl`) è il controllo iniziale fatto dal laboratorio (aggiornamenti, verificazione periodica, DGFE
+      apparecchi dalle scadenze (e dal CSV); si riattiva dalla scheda del cliente (`riattivaCliente`): «stesso apparecchio» = i registratori
+      non dismessi tornano nelle scadenze con le date di prima; «apparecchio nuovo» = i vecchi diventano `dismesso` (restano in archivio coi
+      rapporti) e si apre la scheda del nuovo registratore; date in `cessatoIl` / `riattivatoIl`; `verificato` (+ `verificatoIl`) è il controllo iniziale fatto dal laboratorio (aggiornamenti, verificazione periodica, DGFE
       annuale sui DTR); gli importati (`importato`) partono non spuntati con l'etichetta «DA VERIFICARE».
       Caselle in «Modifica cliente», etichette nella lista e nella scheda, con le date dello storico (`storicoVerifiche`).
       `POST /api/importa-storico` (admin dell'azienda, Impostazioni > «Importa storico»): file JSON `formato: "blucheck-storico-1"` con
       `clienti: [{ragione, domicilio, note, cessato, verificato, ultimaVerifica, storicoVerifiche, segnalazioni}]`; senza `conferma` è solo anteprima,
       con `conferma: true` fa prima `db.backup` in `data/backup/blucheck-prima-import-*.db`, poi una transazione. Clienti con la stessa ragione sociale
       (normalizzata) si saltano. Ogni cliente riceve un apparecchio senza modello/matricola («Registratore da completare») con `ultimaVerifica`.
+      Anagrafica nel file (2026-11-18, dall'export clienti di BluGest): `piva, cf, sdi, pec, email, telefono, domicilio` (campi anche in
+      «Modifica cliente») e `localita` = comune dell'apparecchio. Clienti già presenti: si riempiono solo i campi vuoti (`completati`; il domicilio
+      messo dal primo import = comune dell'apparecchio importato si sostituisce), i campi diversi (P.IVA, CF, SDI, PEC, email, telefono, domicilio, cessato;
+      confronto senza maiuscole/spazi/punteggiatura, telefoni sulle sole cifre) sono `discordanze` nell'anteprima e si scelgono uno per uno
+      (`scelte` {"<id>:<campo>": "nuovo"|"attuale"}, senza scelta resta quello di BluCheck); le date dello storico si uniscono e l'ultima
+      verifica dell'apparecchio importato avanza se il file ne ha una più recente; «verificato» non si tocca mai.
       I file con i dati dei clienti NON vanno nel repository (è pubblico). Prova: `test/storico.mjs`.
 - [x] Aggiornamenti software (2026-11-18): in anagrafica cliente «Usa un software gestionale?» (`gestionale`: si/no/'') e «Quale software»
       (`software`); sezione «Aggiornamenti» (`viewAggiornamenti`, scheda `sheetAgg` in `public/js/app.js`) con i clienti che hanno `gestionale = si`

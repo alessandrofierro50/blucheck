@@ -190,7 +190,7 @@ const AIUTI = {
       ["Sede", "Dove sta l'apparecchio: serve al tecnico per arrivarci."],
       ["Telefono", "Per avvisare quando la verificazione sta per scadere."],
       ["Software gestionale", "Se il cliente usa un gestionale e quale: chi risponde «Sì» compare nella sezione Aggiornamenti."],
-      ["Cliente cessato", "L'attività ha chiuso o non è più vostro cliente: i suoi registratori escono per sempre dalle scadenze."],
+      ["Cliente cessato", "L'attività ha chiuso o non è più vostro cliente: i suoi registratori escono dalle scadenze. Se torna, nella scheda del cliente «Riattiva con lo stesso apparecchio» (le scadenze riprendono) o «Riattiva con un apparecchio nuovo» (il vecchio resta in archivio come dismesso)."],
       ["Verificato", "Spuntalo dopo il controllo iniziale del cliente: aggiornamenti del registratore, verificazione periodica e, sui DTR, scheda di memoria (DGFE) annuale. Resta la data del controllo."],
     ],
   },
@@ -323,7 +323,7 @@ function viewApparecchi() {
 }
 function viewClienti() {
   const q = norm(UI.qc);
-  const list = S.clienti.filter((c) => !q || norm([c.ragione, c.piva, c.domicilio, c.telefono, c.referente].join(" ")).includes(q)).sort((x, y) => norm(x.ragione).localeCompare(norm(y.ragione)));
+  const list = S.clienti.filter((c) => !q || norm([c.ragione, c.piva, c.cf, c.domicilio, c.telefono, c.referente].join(" ")).includes(q)).sort((x, y) => norm(x.ragione).localeCompare(norm(y.ragione)));
   return `<div class="spread"><h2>Clienti <span class="faint">(${S.clienti.length})</span></h2><button class="btn primary sm" data-act="new-cli">+ Cliente</button></div>
   <input type="search" id="qCli" placeholder="Cerca ragione sociale, P.IVA, telefono…" value="${esc(UI.qc)}" data-bind="qc">
   ${list.length ? `<div class="list">${list.map((c) => {
@@ -727,9 +727,12 @@ function sheetCli() {
   const apps = S.apparecchi.filter((a) => a.clienteId === c.id);
   const sv = (c.storicoVerifiche || []).slice().sort().reverse();
   return head(esc(c.ragione), `<button class="btn sm" data-act="edit-cli" data-id="${c.id}">Modifica</button>`) + `<div class="sheet-body gut">
-    ${c.cessato ? `<div class="banner"><span><b>Cliente cessato:</b> i suoi registratori non compaiono più nelle scadenze.</span></div>` : ""}
+    ${c.cessato ? `<div class="banner" style="flex-direction:column;align-items:stretch"><span><b>Cliente cessato:</b> i suoi registratori non compaiono più nelle scadenze. Se torna cliente puoi riattivarlo.</span>
+      <div class="row"><button class="btn sm" data-act="riattiva-stesso" data-id="${c.id}">Riattiva con lo stesso apparecchio</button><button class="btn sm" data-act="riattiva-nuovo" data-id="${c.id}">Riattiva con un apparecchio nuovo</button></div></div>` : ""}
+    ${c.riattivatoIl && !c.cessato ? `<div class="banner info"><span><b>Riattivato il ${fmtD(c.riattivatoIl)}</b>${c.cessatoIl ? ` (era cessato dal ${fmtD(c.cessatoIl)})` : ""}.</span></div>` : ""}
     ${c.verificato ? `<div class="banner ok"><span><b>Verificato${c.verificatoIl ? ` il ${fmtD(c.verificatoIl)}` : ""}:</b> controllo iniziale fatto (aggiornamenti, verificazione periodica, DGFE).</span></div>` : c.importato && !c.cessato ? `<div class="banner info"><span><b>Da verificare:</b> cliente preso dallo storico. Controlla aggiornamenti, verificazione periodica e DGFE (annuale sui DTR), poi spunta «Verificato».</span></div>` : ""}
-    <div class="panel"><dl class="kv"><dt>P.IVA</dt><dd class="mono">${esc(c.piva || "—")}</dd><dt>Domicilio</dt><dd>${esc(c.domicilio || "—")}</dd>
+    <div class="panel"><dl class="kv"><dt>P.IVA</dt><dd class="mono">${esc(c.piva || "—")}</dd><dt>Codice fiscale</dt><dd class="mono">${esc(c.cf || "—")}</dd>
+      <dt>SDI / PEC</dt><dd><span class="mono">${esc(c.sdi || "—")}</span>${c.pec ? " · " + esc(c.pec) : ""}</dd><dt>Domicilio</dt><dd>${esc(c.domicilio || "—")}</dd>
       <dt>Telefono</dt><dd>${esc(c.telefono || "—")}</dd><dt>Email</dt><dd>${esc(c.email || "—")}</dd><dt>Referente</dt><dd>${esc(c.referente || "—")}</dd>
       <dt>Gestionale</dt><dd>${c.gestionale === "si" ? `Sì${c.software ? " · " + esc(c.software) : ""} · <a href="#" data-act="open-agg" data-id="${c.id}">aggiornamenti: ${statoAgg(c).txt.toLowerCase()}</a>` : c.gestionale === "no" ? "No" : "Non indicato"}</dd>
       <dt>Note</dt><dd style="white-space:pre-line">${esc(c.note || "—")}</dd></dl></div>
@@ -742,7 +745,7 @@ function sheetCli() {
 function sheetCliEdit() {
   const c = UI.sheet.draft; const f = (k, l, t = "text") => `<label class="field"><span>${l}</span><input type="${t}" id="ce_${k}" data-ce="${k}" value="${esc(c[k] ?? "")}"></label>`;
   return head(UI.sheet.id ? "Modifica cliente" : "Nuovo cliente") + `<div class="sheet-body gut"><div class="panel">
-    <div class="grid2">${f("ragione", "Ragione sociale")}${f("piva", "Partita IVA")}${f("domicilio", "Domicilio / Residenza")}${f("telefono", "Telefono", "tel")}${f("email", "Email", "email")}${f("referente", "Referente (nome, qualifica)")}</div>
+    <div class="grid2">${f("ragione", "Ragione sociale")}${f("piva", "Partita IVA")}${f("cf", "Codice fiscale")}${f("sdi", "Codice SDI")}${f("pec", "PEC", "email")}${f("domicilio", "Domicilio / Residenza")}${f("telefono", "Telefono", "tel")}${f("email", "Email", "email")}${f("referente", "Referente (nome, qualifica)")}</div>
     <div class="grid2"><label class="field"><span>Usa un software gestionale?</span><select id="ce_gestionale" data-ce="gestionale">${[["", "— Non indicato —"], ["si", "Sì"], ["no", "No"]].map(([v, l]) => `<option value="${v}" ${(c.gestionale || "") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
       <label class="field" id="ceSwBox" ${c.gestionale === "si" ? "" : "hidden"}><span>Quale software gestionale</span><input type="text" id="ce_software" data-ce="software" value="${esc(c.software ?? "")}" placeholder="Nome del programma"></label></div>
     <label class="field"><span>Note</span><textarea id="ce_note" data-ce="note">${esc(c.note || "")}</textarea></label>
@@ -1141,6 +1144,7 @@ document.addEventListener("click", async (e) => {
     case "qr-new": if (!guardWrite()) break; openSheet({ kind: "app-edit", id: null, draft: { clienteId: "", nuovoCliente: {} }, qr: null }); scanQR("app"); break;
     case "edit-app": if (!guardWrite()) break; openSheet({ kind: "app-edit", id, draft: JSON.parse(JSON.stringify(apparecchio(id))), qr: null }); break;
     case "new-cli": if (!guardWrite()) break; openSheet({ kind: "cli-edit", id: null, draft: {} }); break;
+    case "riattiva-stesso": case "riattiva-nuovo": await riattivaCliente(id, act === "riattiva-nuovo"); break;
     case "edit-cli": if (!guardWrite()) break; openSheet({ kind: "cli-edit", id, draft: { ...cliente(id) } }); break;
     case "qr-scan": scanQR("app"); break;
     case "qr-check": scanQR("check"); break;
@@ -1190,6 +1194,7 @@ document.addEventListener("click", async (e) => {
     case "copia": try { await navigator.clipboard.writeText(el.dataset.v); toast("Copiato"); } catch { toast(el.dataset.v, 6000); } break;
     case "csv-scad": exportCsv(); break;
     case "imp-anteprima": case "imp-conferma": await importaStorico(act === "imp-conferma"); break;
+    case "imp-tutti-bc": case "imp-tutti-file": document.querySelectorAll(`#impBox input[data-disc][value="${act === "imp-tutti-file" ? "nuovo" : "attuale"}"]`).forEach((x) => { x.checked = true; }); break;
     case "backup": scaricaFile(`BluCheck_archivio_${todayISO()}.json`, new Blob([JSON.stringify({ app: "blucheck", esportato: new Date().toISOString(), azienda: S.azienda, clienti: S.clienti, apparecchi: S.apparecchi, verifiche: S.verifiche }, null, 1)], { type: "application/json" })); break;
   }
 });
@@ -1251,27 +1256,57 @@ async function saveApp() {
     else { render(); openSheet({ kind: "app", id }); }
   } catch (err) { apiError(err); }
 }
+const CAMPI_IMPORT = { piva: "P.IVA", cf: "Codice fiscale", sdi: "Codice SDI", pec: "PEC", email: "Email", telefono: "Telefono", domicilio: "Domicilio", cessato: "Cessato" };
 async function importaStorico(conferma) {
   const box = $("#impBox"); const file = $("#impFile")?.files?.[0];
   if (!file) return toast("Scegli prima il file di storico.");
   if (conferma && !guardWrite()) return;
   try {
     const body = JSON.parse(await file.text());
-    const r = await api("POST", "/api/importa-storico", { ...body, conferma: !!conferma });
+    const scelte = {};
+    box.querySelectorAll("input[data-disc]:checked").forEach((x) => { scelte[x.dataset.disc] = x.value; });
+    const r = await api("POST", "/api/importa-storico", { ...body, conferma: !!conferma, scelte });
     if (r.anteprima) {
-      box.innerHTML = `<div class="banner info" style="flex-direction:column;align-items:stretch"><span>Da importare: <b>${r.nuovi}</b> clienti (${r.cessati} cessati, ${r.verificati} verificati${r.senza_data ? `, ${r.senza_data} senza data` : ""}). Già presenti e saltati: <b>${r.saltati.length}</b>${r.saltati.length ? ` (${esc(r.saltati.slice(0, 10).join(", "))}${r.saltati.length > 10 ? "…" : ""})` : ""}.</span>
-        ${r.nuovi ? `<div class="row"><button class="btn primary" data-act="imp-conferma">Importa ${r.nuovi} clienti</button></div>` : ""}</div>`;
+      const disc = r.discordanze || [];
+      const righe = disc.map((d) => `<tr><td>${esc(d.ragione)}</td><td>${esc(CAMPI_IMPORT[d.campo] || d.campo)}</td>
+        <td><label><input type="radio" name="d-${esc(d.chiave)}" data-disc="${esc(d.chiave)}" value="attuale" checked> ${esc(d.attuale)}</label></td>
+        <td><label><input type="radio" name="d-${esc(d.chiave)}" data-disc="${esc(d.chiave)}" value="nuovo"> ${esc(d.nuovo)}</label></td></tr>`).join("");
+      box.innerHTML = `<div class="banner info" style="flex-direction:column;align-items:stretch"><span>Clienti nuovi da inserire: <b>${r.nuovi}</b>${r.nuovi ? ` (${r.cessati} cessati, ${r.verificati} verificati${r.senza_data ? `, ${r.senza_data} senza data` : ""})` : ""}.
+        Già presenti da aggiornare: <b>${r.aggiornati}</b>${r.date_avanzate ? ` (${r.date_avanzate} con una verifica più recente)` : ""}. Già presenti e uguali: <b>${r.saltati.length}</b>.
+        ${disc.length ? `<br>Dati diversi tra BluCheck e il file: <b>${disc.length}</b>. Scegli quale tenere (se non scegli resta quello di BluCheck). I campi vuoti in BluCheck si riempiono da soli.` : ""}</span>
+        ${disc.length ? `<div class="row"><button class="btn" data-act="imp-tutti-bc">Tieni tutti quelli di BluCheck</button><button class="btn" data-act="imp-tutti-file">Prendi tutti quelli del file</button></div>
+        <div style="overflow:auto;max-height:50vh"><table class="t"><thead><tr><th>Cliente</th><th>Dato</th><th>In BluCheck</th><th>Nel file</th></tr></thead><tbody>${righe}</tbody></table></div>` : ""}
+        ${r.nuovi || r.aggiornati ? `<div class="row"><button class="btn primary" data-act="imp-conferma">Importa e aggiorna</button></div>` : ""}</div>`;
     } else {
-      box.innerHTML = `<div class="banner ok"><span>Importati <b>${r.importati}</b> clienti. Backup fatto prima dell'import: <span class="mono">${esc(r.backup || "")}</span>.</span></div>`;
+      box.innerHTML = `<div class="banner ok"><span>Inseriti <b>${r.importati}</b> clienti nuovi, aggiornati <b>${r.aggiornati}</b>${r.cambiati ? ` (${r.cambiati} dati presi dal file)` : ""}. ${r.backup ? `Backup fatto prima dell'import: <span class="mono">${esc(r.backup)}</span>.` : ""}</span></div>`;
       toast("Storico importato"); await start();
     }
   } catch (err) { if (err instanceof SyntaxError) toast("Il file non è un JSON valido."); else apiError(err); }
+}
+// Riattivazione di un cliente cessato. Stesso apparecchio: i suoi registratori (non dismessi) tornano nelle scadenze con le date di prima.
+// Apparecchio nuovo: i registratori di prima diventano «dismessi» (restano in archivio con i loro rapporti) e si apre la scheda del nuovo.
+async function riattivaCliente(id, nuovo) {
+  if (!guardWrite()) return;
+  const c = cliente(id); if (!c) return;
+  const oggi = todayISO();
+  try {
+    if (nuovo) for (const a of S.apparecchi.filter((x) => x.clienteId === id && !x.dismesso))
+      await put("apparecchi", a.id, { ...a, dismesso: true, note: [a.note, `DISMESSO IL ${fmtD(oggi)}: CLIENTE RIATTIVATO CON UN APPARECCHIO NUOVO.`].filter(Boolean).join("\n") });
+    await put("clienti", id, { ...c, cessato: false, riattivatoIl: oggi });
+    toast(nuovo ? "Cliente riattivato: inserisci il nuovo registratore" : "Cliente riattivato: i suoi registratori tornano nelle scadenze");
+    render();
+    if (nuovo) openSheet({ kind: "app-edit", id: null, draft: { clienteId: id, nuovoCliente: {} }, qr: null });
+    else openSheet({ kind: "cli", id });
+  } catch (err) { apiError(err); }
 }
 async function saveCli() {
   if (!guardWrite()) return;
   const s = UI.sheet, d = s.draft; if (!d.ragione?.trim()) return toast("Inserisci la ragione sociale.");
   const id = s.id || uid();
   const ver = d.verificato ? { verificatoIl: d.verificatoIl || todayISO() } : { verificatoIl: "" };
+  const prima = s.id ? cliente(s.id) : null;
+  if (d.cessato && !prima?.cessato) ver.cessatoIl = todayISO();
+  if (!d.cessato && prima?.cessato) ver.riattivatoIl = todayISO();
   try { await put("clienti", id, { ...d, ...ver, id, ragione: d.ragione.trim() }); toast("Cliente salvato"); render(); openSheet({ kind: "cli", id }); } catch (err) { apiError(err); }
 }
 async function copyReminder(id) {

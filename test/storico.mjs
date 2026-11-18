@@ -41,6 +41,27 @@ ok(due && due.cessato, "cliente cessato importato");
 const app1 = r.j.apparecchi.find((a) => a.clienteId === uno.id);
 ok(app1 && app1.ultimaVerifica === "2024-11-20" && app1.importato && !app1.matricola, "apparecchio da completare con l'ultima verifica");
 r = await az("POST", "/api/importa-storico", { ...file, conferma: true }); ok(r.j.importati === 0 && r.j.saltati.length === 4, "secondo import: nessun doppione");
+// completare l'anagrafica dei clienti già presenti: solo i campi vuoti, senza toccare segni e date
+await az("PUT", `/api/dati/clienti/${uno.id}`, { data: { ...uno, telefono: "0833 111", verificato: true } });
+const file2 = { formato: "blucheck-storico-1", clienti: [
+  { ragione: "Bar Uno", piva: "01234567890", cf: "rssmra80a01e506x", pec: "BAR@PEC.IT", telefono: "999", domicilio: "via roma 1, lecce", ultimaVerifica: "2026-01-01", cessato: true },
+  { ragione: "Negozio Tre", piva: "09876543210", localita: "Gallipoli", ultimaVerifica: "2025-05-05" },
+] };
+r = await az("POST", "/api/importa-storico", file2);
+ok(r.j.nuovi === 1 && r.j.aggiornati === 1 && r.j.date_avanzate === 1, "anteprima: 1 nuovo, 1 da aggiornare con verifica più recente " + JSON.stringify(r.j));
+const dTel = r.j.discordanze.find((d) => d.campo === "telefono"), dCess = r.j.discordanze.find((d) => d.campo === "cessato");
+ok(r.j.discordanze.length === 2 && dTel?.attuale === "0833 111" && dTel?.nuovo === "999" && dCess?.attuale === "NO" && dCess?.nuovo === "SÌ", "discordanze: telefono e cessato " + JSON.stringify(r.j.discordanze));
+r = await az("GET", "/api/bootstrap"); ok(r.j.clienti.find((c) => c.id === uno.id).telefono === "0833 111", "l'anteprima non cambia nulla");
+r = await az("POST", "/api/importa-storico", { ...file2, conferma: true, scelte: { [dTel.chiave]: "nuovo", [dCess.chiave]: "attuale" } });
+ok(r.j.importati === 1 && r.j.aggiornati === 1 && r.j.cambiati === 1, "conferma: 1 inserito, 1 aggiornato, 1 dato preso dal file " + JSON.stringify(r.j));
+r = await az("GET", "/api/bootstrap");
+const uno2 = r.j.clienti.find((c) => c.id === uno.id), tre = r.j.clienti.find((c) => c.ragione === "NEGOZIO TRE");
+ok(uno2.piva === "01234567890" && uno2.cf === "RSSMRA80A01E506X" && uno2.pec === "bar@pec.it" && uno2.domicilio === "VIA ROMA 1, LECCE", "campi vuoti riempiti");
+ok(uno2.telefono === "999" && !uno2.cessato && uno2.verificato && uno2.storicoVerifiche.length === 2, "scelte rispettate: telefono dal file, cessato di BluCheck, segno verificato non toccato");
+ok(r.j.apparecchi.find((a) => a.clienteId === uno.id).ultimaVerifica === "2026-01-01", "ultima verifica avanzata a quella più recente del file");
+ok(tre && tre.piva === "09876543210" && r.j.apparecchi.find((a) => a.clienteId === tre.id).localita === "GALLIPOLI", "nuovo cliente con P.IVA e comune dell'apparecchio");
+r = await az("POST", "/api/importa-storico", file2);
+ok(r.j.nuovi === 0 && r.j.date_avanzate === 0 && r.j.discordanze.length === 1 && r.j.discordanze[0].campo === "cessato", "terzo import: resta solo la discordanza scartata " + JSON.stringify(r.j));
 r = await su("GET", "/api/su/dashboard"); ok(r.s === 200, "server ancora in piedi");
 console.log(fallite ? `\n${fallite} prove fallite` : "\nTutte le prove sono passate");
 process.exit(fallite ? 1 : 0);
