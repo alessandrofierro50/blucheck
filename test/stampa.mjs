@@ -81,7 +81,7 @@ const r = await page.evaluate(async () => {
       return { righe: r80, max80: Math.max(...r80.map((x) => x.length)), max58: Math.max(...r58.map((x) => x.length)), fine: [...b80.slice(-4)],
         caselle: r80.filter((x) => x.endsWith("[ ]SI [ ]NO")).length, test80: buildTests("integro").filter((t) => !t.head).length + PRE.length,
         tagli: (() => { let n = 0; for (let i = 0; i < b80.length - 2; i++) if (b80[i] === 0x1d && b80[i + 1] === 0x56) n++; return n; })(),
-        pdf: b64(pdfSchedaBianca("integro", L)), pdfPrivo: pdfSchedaBianca("privo", L).getNumberOfPages() };
+        pdf: b64(pdfSchedaBianca("integro", L)), pdfPrivo: pdfSchedaBianca("privo", L).getNumberOfPages(), pagine: [pdfSchedaBianca("integro", L), pdfThermal(v, firma, firma, tb)].map((d) => Array.from({ length: d.getNumberOfPages() }, (_, i) => Math.round(d.internal.pageSize.getHeight.call({ ...d.internal.pageSize }) && d.getPageInfo(i + 1).pageContext.mediaBox.topRightY / 72 * 25.4))) };
     })(),
   };
 });
@@ -115,7 +115,7 @@ ok(r.bianca.max80 <= 48 && r.bianca.max58 <= 32, `scheda in bianco entro 48/32 c
 ok(r.bianca.caselle === r.bianca.test80, `scheda in bianco: caselle SI/NO su ogni prova (${r.bianca.caselle} di ${r.bianca.test80})`);
 ok(r.bianca.tagli === 1 && r.bianca.fine.join() === "29,86,66,0", "scheda in bianco: un solo taglio, alla fine");
 ok(r.bianca.righe.some((x) => x.startsWith("Matricola ___")) && r.bianca.righe.some((x) => x.includes("[ ] POSITIVO")), "scheda in bianco: righe da compilare ed esito da spuntare");
-ok(r.bianca.pdfPrivo === 1, "PDF 80 mm della scheda in bianco (All. 2) su una pagina");
+ok(r.bianca.pagine.every((p) => p.length > 1 && p.every((h) => h <= 190) && p.at(-1) < 190), `PDF 80 mm a pagine di 190 mm al massimo (driver di Windows), l'ultima alta quanto serve: scheda ${r.bianca.pagine[0].join("+")} mm, rapporto ${r.bianca.pagine[1].join("+")} mm`);
 if (OUT) {
   fs.mkdirSync(OUT, { recursive: true });
   fs.writeFileSync(path.join(OUT, "scheda-bianca-80mm.pdf"), Buffer.from(r.bianca.pdf, "base64"));
