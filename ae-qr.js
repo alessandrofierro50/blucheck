@@ -94,19 +94,27 @@ function parseAePage(html) {
   return out;
 }
 
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 BluCheck";
 const cache = new Map();
 async function leggiQrAe(url, { ttl = 10 * 60000 } = {}) {
   if (!isAeUrl(url)) { const e = new Error("Il QR non porta al servizio dell'Agenzia delle Entrate."); e.status = 400; throw e; }
   const c = cache.get(url); if (c && Date.now() - c.t < ttl) return c.v;
-  const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 12000);
-  let html;
-  try {
-    const r = await fetch(url, { signal: ctl.signal, redirect: "follow", headers: { "user-agent": "Mozilla/5.0 (BluCheck; verifiche periodiche RT)", "accept": "text/html", "accept-language": "it-IT,it" } });
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    html = await r.text();
-  } catch (e) {
-    const err = new Error("Il sito dell'Agenzia non risponde. Riprova tra poco oppure apri la pagina dal telefono."); err.status = 502; throw err;
-  } finally { clearTimeout(to); }
+  let html, ultimo = "";
+  // due tentativi: il sito dell'Agenzia a volte chiude la prima connessione o risponde lento
+  for (let tent = 1; tent <= 2 && html === undefined; tent++) {
+    const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 15000);
+    try {
+      const r = await fetch(url, { signal: ctl.signal, redirect: "follow", headers: { "user-agent": UA, "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "accept-language": "it-IT,it;q=0.9" } });
+      if (!r.ok) { ultimo = "HTTP " + r.status; if (r.status < 500) break; continue; }
+      html = await r.text();
+    } catch (e) {
+      ultimo = e.name === "AbortError" ? "nessuna risposta in 15 secondi" : (e.cause?.code || e.cause?.message || e.message || "errore di rete");
+    } finally { clearTimeout(to); }
+  }
+  if (html === undefined) {
+    console.error(`[ae-qr] lettura non riuscita (${ultimo}): ${url}`);
+    const err = new Error(`Il sito dell'Agenzia non risponde (${ultimo}). Riprova tra poco oppure apri la pagina dal telefono.`); err.status = 502; err.dettaglio = ultimo; throw err;
+  }
   const v = parseAePage(html);
   if (!v.matricola) { const e = new Error("Pagina dell'Agenzia letta, ma senza i dati del dispositivo. Aprila dal telefono per controllarla."); e.status = 422; throw e; }
   cache.set(url, { t: Date.now(), v });
