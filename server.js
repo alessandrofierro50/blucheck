@@ -1385,7 +1385,12 @@ app.use("/vendor/jspdf", express.static(path.join(__dirname, "node_modules/jspdf
 app.use("/vendor/jsqr", express.static(path.join(__dirname, "node_modules/jsqr/dist"), { maxAge: "30d" }));
 app.get("/app", (req, res) => res.sendFile(path.join(__dirname, "public", "app.html")));
 app.get("/admin", (req, res) => res.sendFile(path.join(__dirname, "public", "admin.html")));
-app.use(express.static(path.join(__dirname, "public"), { maxAge: PROD ? "1h" : 0, extensions: ["html"] }));
+// Pagine, script e stili si ricontrollano a ogni apertura (risposta 304 se non cambiati): dopo un aggiornamento del server
+// il browser non può tenere un app.js vecchio con un app.html nuovo (sezione nuova che resta vuota). Immagini e resto: 1 ora.
+app.use(express.static(path.join(__dirname, "public"), {
+  maxAge: PROD ? "1h" : 0, extensions: ["html"],
+  setHeaders: (res, file) => { if (/\.(html|js|css|webmanifest)$/.test(file)) res.setHeader("Cache-Control", "no-cache"); },
+}));
 
 /* ============================== avvio ============================== */
 (function bootstrapSuperuser() {

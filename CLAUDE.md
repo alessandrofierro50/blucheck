@@ -20,6 +20,7 @@ Questo software fa parte del progetto BluCode Informatica. La memoria condivisa 
 - Node.js 20, Express, SQLite (better-sqlite3), pm2. Una sola istanza (SQLite).
 - `server.js` API, abbonamenti, pagamenti, acquisto dal sito, Console · `contratto.js` contratto PDF dell'acquisto · `abbonamento.js` fasi e modelli email · `pagamenti.js` fatturazione, Stripe/PayPal, XML, proforma · `test/` prove (e2e con gestori simulati) · `ae-qr.js` lettura della pagina AdE del QR · `public/js/app.js` app tecnici · `public/js/admin.js` superuser · `public/js/pdf.js` moduli PDF.
 - Le password e le chiavi stanno solo nel `.env` del server, mai nel repository.
+- Cache (2026-11-18): html, js, css e manifest di `public/` hanno `Cache-Control: no-cache` (si ricontrollano a ogni apertura, 304 se uguali), così dopo un aggiornamento non resta un `app.js` vecchio con un `app.html` nuovo. Immagini 1 ora.
 - [x] Acquisto dal sito (2026-11-03, contratto comune `comune/acquisto-dal-sito.md`, modello BluGest 708dc08): `GET/POST /api/public/acquisto`
       (`server.js`, CORS del sito su tutto `/api/public/*`): SOLO annuale, piani attivi con prezzo dal listino (`code` = id del piano: solo/team/lab),
       carta, PayPal o bonifico se attivi; stessi controlli della prova (trappola `website`, `elapsed_ms`, limiti IP/email/giorno, termini e privacy).
