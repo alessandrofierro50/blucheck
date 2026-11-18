@@ -36,3 +36,11 @@ Questo software fa parte del progetto BluCode Informatica. La memoria condivisa 
       ricerca in basso (clienti: ragione sociale, città/domicilio, P.IVA, telefono, CF; apparecchi: matricola, marca e modello, cliente),
       frecce/Invio/clic/Esc; «Nuovo» crea cliente (PUT /api/dati/clienti/:id), apparecchio (esercente da un secondo elenco) o piano
       (POST /api/su/piani) e lo lascia scelto. A tutto schermo sotto 640 px. Non c'è scelta del tecnico (il rapporto è di chi lo compila).
+- [x] Clienti «cessato» e «verificato» + import dello storico (2026-11-18, per CDL Italia): `cessato` sul cliente toglie per sempre i suoi
+      apparecchi dalle scadenze (e dal CSV); `verificato` dice che l'ultima verifica è stata fatta prima di usare BluCheck (dato dallo storico).
+      Caselle in «Modifica cliente», etichette nella lista e nella scheda, con le date dello storico (`storicoVerifiche`).
+      `POST /api/importa-storico` (admin dell'azienda, Impostazioni > «Importa storico»): file JSON `formato: "blucheck-storico-1"` con
+      `clienti: [{ragione, domicilio, note, cessato, verificato, ultimaVerifica, storicoVerifiche, segnalazioni}]`; senza `conferma` è solo anteprima,
+      con `conferma: true` fa prima `db.backup` in `data/backup/blucheck-prima-import-*.db`, poi una transazione. Clienti con la stessa ragione sociale
+      (normalizzata) si saltano. Ogni cliente riceve un apparecchio senza modello/matricola («Registratore da completare») con `ultimaVerifica`.
+      I file con i dati dei clienti NON vanno nel repository (è pubblico). Prova: `test/storico.mjs`.
