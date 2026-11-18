@@ -916,6 +916,149 @@ app.post("/api/importa-storico", auth, azOnly, solo("admin"), wrap(async (req, r
   registra(req.user.email, "import_storico", `${req.azienda.ragione}: ${nuovi.length} nuovi (${riepilogo.cessati} cessati), ${aggiorna.length} aggiornati, ${cambiati} discordanze col valore del file, ${saltati.length} invariati; backup ${path.basename(backup)}`, req.ip);
   res.json({ importati: nuovi.length, cambiati, backup: path.basename(backup), ...riepilogo });
 }));
+/* ---------- import dei QR code da file (foto, PDF, ZIP) ----------
+   Il browser legge i QR dai file e manda qui gli indirizzi della pagina dell'Agenzia. Prima si leggono le pagine a gruppi
+   (POST /api/importa-qr/leggi, così si vede l'avanzamento e non si supera il tempo di nginx), poi POST /api/importa-qr
+   senza «conferma» dà il riepilogo (nuovi, da completare, già presenti, non leggibili) e con «conferma» salva tutto
+   in una transazione, dopo un backup del database. Le pagine lette restano in memoria un'ora, quindi la conferma non le rilegge. */
+const QR_TTL = 60 * 60000;
+const normMatr = (s) => String(s || "").toUpperCase().replace(/\s+/g, "");
+const normPiva = (s) => String(s || "").toUpperCase().replace(/^IT/, "").replace(/\W/g, "");
+async function leggiQrMolti(urls) {
+  const out = new Array(urls.length); let i = 0;
+  const lavora = async () => {
+    while (i < urls.length) {
+      const k = i++;
+      try { out[k] = { url: urls[k], dati: await leggiQrAe(urls[k], { ttl: QR_TTL }) }; }
+      catch (e) { out[k] = { url: urls[k], errore: e.message }; }
+    }
+  };
+  await Promise.all([lavora(), lavora(), lavora()]);
+  return out;
+}
+const urlsQr = (v, max) => {
+  if (!Array.isArray(v)) fail(400, "Elenco dei QR mancante.");
+  if (v.length > max) fail(413, `Troppi QR code in una volta (massimo ${max}).`);
+  return [...new Set(v.map((u) => str(u, 600)).filter(Boolean))];
+};
+app.post("/api/importa-qr/leggi", auth, azOnly, wrap(async (req, res) => {
+  const urls = urlsQr(req.body?.urls, 20);
+  limita("qrimp:" + req.azienda.id, 300, 3600000);
+  res.json({ righe: await leggiQrMolti(urls) });
+}));
+/** Dati dell'Agenzia -> campi dell'apparecchio (come la lettura del QR dalla fotocamera). */
+function campiDaAe(d, url, app) {
+  const c = { matricola: normMatr(d.matricola), ae: { ...d, letto: oggi() }, qrUrl: url };
+  if (d.modelloCompleto) c.modello = d.modelloCompleto;
+  if (d.fwDispositivo) { c.firmware = d.fwDispositivo; if (d.fwDispositivoData) c.firmwareData = d.fwDispositivoData; }
+  if (d.vpData && d.vpPositiva && (!app?.ultimaVerifica || d.vpData > app.ultimaVerifica)) c.ultimaVerifica = d.vpData;
+  return c;
+}
+const NOTA_IMPORTATO = "IMPORTATO DALLO STORICO: MODELLO E MATRICOLA DA COMPLETARE ALLA PROSSIMA VERIFICA.";
+async function pianoImportQr(aziendaId, urls) {
+  const lette = await leggiQrMolti(urls);
+  const clienti = db.prepare("SELECT data FROM dati WHERE azienda_id=? AND coll='clienti' AND eliminato=0").all(aziendaId).map((r) => JSON.parse(r.data));
+  const apparecchi = db.prepare("SELECT data FROM dati WHERE azienda_id=? AND coll='apparecchi' AND eliminato=0").all(aziendaId).map((r) => JSON.parse(r.data));
+  const perMatr = new Map(apparecchi.filter((a) => a.matricola).map((a) => [normMatr(a.matricola), a]));
+  const perPiva = new Map(clienti.filter((c) => normPiva(c.piva)).map((c) => [normPiva(c.piva), c]));
+  const perNome = new Map(clienti.map((c) => [normRagione(c.ragione), c]));
+  const cliById = new Map(clienti.map((c) => [c.id, c]));
+  const daCompletare = new Map(); // apparecchi dello storico ancora senza matricola, per cliente
+  for (const a of apparecchi) if (!a.matricola && !a.dismesso) { if (!daCompletare.has(a.clienteId)) daCompletare.set(a.clienteId, []); daCompletare.get(a.clienteId).push(a); }
+  const nuoviClienti = new Map(); // P.IVA o nome -> cliente da creare (due QR dello stesso esercente nuovo = un solo cliente)
+  const viste = new Set(), righe = [];
+  for (const l of lette) {
+    const r = { url: l.url };
+    if (l.errore) { righe.push({ ...r, esito: "errore", motivo: l.errore }); continue; }
+    const d = l.dati, m = normMatr(d.matricola);
+    r.matricola = m; r.modello = d.modelloCompleto || ""; r.esercente = d.esercenteNome || ""; r.piva = d.esercentePiva || ""; r.stato = d.stato || "";
+    r.vp = d.vpData && d.vpPositiva ? d.vpData : "";
+    if (viste.has(m)) { righe.push({ ...r, esito: "doppio", motivo: "Stessa matricola di un altro QR di questo import." }); continue; }
+    viste.add(m);
+    r.avvisi = [];
+    const gia = perMatr.get(m);
+    if (gia) {
+      const cli = cliById.get(gia.clienteId);
+      const campi = campiDaAe(d, l.url, gia);
+      const cambi = [];
+      if (campi.modello && campi.modello !== gia.modello) cambi.push("modello");
+      if (campi.firmware && campi.firmware !== gia.firmware) cambi.push("firmware");
+      if (campi.ultimaVerifica) cambi.push("ultima verificazione");
+      if (campi.qrUrl !== gia.qrUrl) cambi.push("QR");
+      const { letto: _a, ...aeNuovo } = campi.ae; const { letto: _b, ...aeVecchio } = gia.ae || {};
+      if (!cambi.length && JSON.stringify(aeNuovo) !== JSON.stringify(aeVecchio)) cambi.push("dati dell'Agenzia");
+      if (gia.dismesso) r.avvisi.push("apparecchio dismesso in BluCheck");
+      if (cli?.cessato) r.avvisi.push("cliente cessato");
+      if (r.piva && cli && normPiva(cli.piva) && normPiva(cli.piva) !== normPiva(r.piva)) r.avvisi.push(`per l'Agenzia l'esercente è ${r.esercente || r.piva} (${r.piva}): il cliente non viene cambiato`);
+      righe.push({ ...r, esito: cambi.length ? "presente" : "invariato", apparecchioId: gia.id, cliente: cli?.ragione || "", cambi, _campi: { ...gia, ...campi, matricola: gia.matricola || campi.matricola } });
+      continue;
+    }
+    // apparecchio nuovo: cliente per P.IVA, poi per ragione sociale, altrimenti cliente nuovo con i dati dell'Agenzia
+    let cli = r.piva ? perPiva.get(normPiva(r.piva)) : null, perNomeTrovato = false;
+    if (!cli && r.esercente) { cli = perNome.get(normRagione(r.esercente)); perNomeTrovato = !!cli; }
+    if (cli) {
+      if (perNomeTrovato) r.avvisi.push("cliente riconosciuto dalla ragione sociale" + (r.piva && !normPiva(cli.piva) ? ": gli si aggiunge la P.IVA" : ""));
+      if (cli.cessato) r.avvisi.push("cliente cessato: riattivalo dalla sua scheda se serve");
+      const libero = (daCompletare.get(cli.id) || []).shift();
+      if (libero) {
+        righe.push({ ...r, esito: "completa", apparecchioId: libero.id, cliente: cli.ragione, clienteId: cli.id, pivaCliente: perNomeTrovato && r.piva && !normPiva(cli.piva) ? r.piva : "",
+          _campi: { ...libero, ...campiDaAe(d, l.url, libero), note: String(libero.note || "") === NOTA_IMPORTATO ? "" : libero.note } });
+      } else {
+        righe.push({ ...r, esito: "nuovo", cliente: cli.ragione, clienteId: cli.id, pivaCliente: perNomeTrovato && r.piva && !normPiva(cli.piva) ? r.piva : "", _campi: campiDaAe(d, l.url, null) });
+      }
+      continue;
+    }
+    if (!r.esercente && !r.piva) { righe.push({ ...r, esito: "errore", motivo: "La pagina dell'Agenzia non indica l'esercente: aggiungilo a mano con «Leggi QR»." }); continue; }
+    const kc = r.piva ? "p:" + normPiva(r.piva) : "n:" + normRagione(r.esercente);
+    if (!nuoviClienti.has(kc)) nuoviClienti.set(kc, { id: uid(), ragione: r.esercente || r.piva, piva: r.piva });
+    const nc = nuoviClienti.get(kc);
+    righe.push({ ...r, esito: "nuovo", cliente: nc.ragione, clienteNuovo: nc, _campi: campiDaAe(d, l.url, null) });
+  }
+  return righe;
+}
+const pubRiga = ({ _campi, clienteNuovo, ...r }) => ({ ...r, clienteNuovo: !!clienteNuovo });
+app.post("/api/importa-qr", auth, azOnly, wrap(async (req, res) => {
+  const urls = urlsQr(req.body?.urls, 2000);
+  const escludi = new Set(Array.isArray(req.body?.escludi) ? req.body.escludi.map((u) => str(u, 600)) : []);
+  const righe = await pianoImportQr(req.azienda.id, urls);
+  const conta = (e) => righe.filter((r) => r.esito === e).length;
+  const riepilogo = { nuovi: conta("nuovo"), clienti_nuovi: new Set(righe.filter((r) => r.clienteNuovo).map((r) => r.clienteNuovo.id)).size,
+    completati: conta("completa"), aggiornati: conta("presente"), invariati: conta("invariato"), doppi: conta("doppio"), errori: conta("errore") };
+  if (!req.body.conferma) return res.json({ anteprima: true, ...riepilogo, righe: righe.map(pubRiga) });
+  const scrivi = righe.filter((r) => ["nuovo", "completa", "presente"].includes(r.esito) && !escludi.has(r.url));
+  if (!scrivi.length) return res.json({ salvati: 0, ...riepilogo, righe: righe.map(pubRiga) });
+  const dir = path.join(path.dirname(db.name), "backup");
+  fs.mkdirSync(dir, { recursive: true });
+  const backup = path.join(dir, `blucheck-prima-import-qr-${new Date().toISOString().replace(/[:.]/g, "-")}.db`);
+  await db.backup(backup);
+  const fatti = { nuovi: 0, completati: 0, aggiornati: 0, clienti: 0 };
+  db.transaction(() => {
+    const creati = new Set();
+    for (const r of scrivi) {
+      let clienteId = r.clienteId;
+      if (r.clienteNuovo) {
+        clienteId = r.clienteNuovo.id;
+        if (!creati.has(clienteId)) {
+          creati.add(clienteId); fatti.clienti++;
+          salvaDato(req.azienda.id, "clienti", clienteId, { id: clienteId, ragione: r.clienteNuovo.ragione, piva: r.clienteNuovo.piva, domicilio: "", telefono: "", email: "", referente: "", note: "" }, req.user);
+        }
+      } else if (r.pivaCliente) {
+        const c = db.prepare("SELECT data FROM dati WHERE azienda_id=? AND coll='clienti' AND id=? AND eliminato=0").get(req.azienda.id, clienteId);
+        if (c) { const cd = JSON.parse(c.data); if (!normPiva(cd.piva)) salvaDato(req.azienda.id, "clienti", clienteId, { ...cd, piva: r.pivaCliente }, req.user); }
+      }
+      if (r.esito === "presente") { salvaDato(req.azienda.id, "apparecchi", r.apparecchioId, r._campi, req.user); fatti.aggiornati++; }
+      else if (r.esito === "completa") { salvaDato(req.azienda.id, "apparecchi", r.apparecchioId, { ...r._campi, clienteId }, req.user); fatti.completati++; }
+      else {
+        const id = uid();
+        salvaDato(req.azienda.id, "apparecchi", id, { id, clienteId, modello: "", matricola: "", indirizzo: "", localita: "", firmware: "", firmwareData: "",
+          ultimaVerifica: "", dgfeAnnuale: false, ultimoDgfe: "", dismesso: false, note: "", ...r._campi }, req.user);
+        fatti.nuovi++;
+      }
+    }
+  })();
+  registra(req.user.email, "import_qr", `${req.azienda.ragione}: ${fatti.nuovi} apparecchi nuovi (${fatti.clienti} clienti nuovi), ${fatti.completati} completati, ${fatti.aggiornati} aggiornati, ${riepilogo.errori} non letti; backup ${path.basename(backup)}`, req.ip);
+  res.json({ salvati: scrivi.length, fatti, backup: path.basename(backup), ...riepilogo, righe: righe.map(pubRiga) });
+}));
 app.get("/api/firma-tecnico/:id", auth, azOnly, (req, res) => {
   const u = db.prepare("SELECT firma FROM utenti WHERE id=? AND azienda_id=?").get(str(req.params.id, 64), req.azienda.id);
   res.json({ firma: u?.firma || "" });
@@ -1385,7 +1528,9 @@ app.use("/vendor/jspdf", express.static(path.join(__dirname, "node_modules/jspdf
 app.use("/vendor/jsqr", express.static(path.join(__dirname, "node_modules/jsqr/dist"), { maxAge: "30d" }));
 app.get("/app", (req, res) => res.sendFile(path.join(__dirname, "public", "app.html")));
 app.get("/admin", (req, res) => res.sendFile(path.join(__dirname, "public", "admin.html")));
-app.use(express.static(path.join(__dirname, "public"), { maxAge: PROD ? "1h" : 0, extensions: ["html"] }));
+// le pagine HTML non vanno in cache (così dopo un aggiornamento caricano subito i nuovi ?v= di js e css), il resto 1 ora
+app.use(express.static(path.join(__dirname, "public"), { maxAge: PROD ? "1h" : 0, extensions: ["html"],
+  setHeaders: (res, file) => { if (file.endsWith(".html")) res.setHeader("Cache-Control", "no-cache"); } }));
 
 /* ============================== avvio ============================== */
 (function bootstrapSuperuser() {

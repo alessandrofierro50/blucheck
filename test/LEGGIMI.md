@@ -38,4 +38,12 @@ col timbro, i comandi ESC/POS (righe entro 48/32 colonne, solo ASCII, immagini r
 
 ```bash
 node test/stampa.mjs                 # OUT=/cartella salva anche i PDF e i comandi ESC/POS di esempio
+## Import dei QR code da file
+`test/importa-qr.mjs` prova `POST /api/importa-qr/leggi` e `POST /api/importa-qr` (riepilogo, conferma con backup, registratori dello storico
+completati, clienti nuovi, già presenti, doppioni, QR non validi). Le pagine dell'Agenzia sono simulate in `mock-gestori.js` (`Q1`…`Q8`).
+Su un database **nuovo**, con lo stesso server e le stesse variabili sopra:
+
+```bash
+rm -f /tmp/bc-test.db*; node -r ./test/mock-gestori.js server.js &
+node test/importa-qr.mjs
 ```
