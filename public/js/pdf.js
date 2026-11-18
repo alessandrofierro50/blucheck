@@ -1,5 +1,5 @@
 "use strict";
-/* BluCheck - lista di controllo e moduli PDF (A4, termico 80 mm, dichiarazione) */
+/* BluCheck - lista di controllo e moduli PDF (A4, termico 80 mm, dichiarazione), timbro del cliente, comandi ESC/POS per la termica */
 const TX = {
   p11: ["Verifica integrità e chiusura involucro RT, integrità Targhetta identificativa, tipo e integrità del Sigillo Fiscale:", "Involucro RT integro e chiuso"],
   p12: ["Targhetta identificativa del Registratore Telematico riportante Modello, Matricola, dati anagrafici del Fabbricante.", "Targhetta identificativa"],
@@ -50,7 +50,62 @@ const clean = (s) => String(s ?? "").replace(/[’‘]/g, "'").replace(/[“”]
 const LH = (fs) => fs * 0.3528 * 1.18;
 const labFor = (v) => ({ ...(v.lab || {}), tecnico: v.tecnico?.nome || "", cfTecnico: v.tecnico?.cf || "", sigillo: v.tecnico?.sigillo || "" });
 
-function pdfA4(v, firmaU, firmaT) {
+/* Timbro simulato del cliente: immagine PNG (sfondo trasparente) con ragione sociale, indirizzo, P.IVA e C.F. presi
+   dai dati del cliente del rapporto. Inchiostro blu, doppia cornice, leggera inclinazione e grana come un timbro vero.
+   Restituisce { url, w, h } (pixel) oppure null se manca la ragione sociale. */
+function timbroLinee(cli) {
+  const c = cli || {}; if (!String(c.ragione || "").trim()) return null;
+  const up = (s) => clean(s).trim().toUpperCase();
+  const piva = String(c.piva || "").trim(), cf = String(c.cf || "").trim();
+  return [up(c.ragione), up(c.domicilio), [piva ? "P.IVA " + piva : "", cf && cf.toUpperCase() !== piva.toUpperCase() ? "C.F. " + cf.toUpperCase() : ""].filter(Boolean).join("  ")].filter(Boolean);
+}
+function timbroCliente(cli, { inchiostro = "#1f3a9e", grana = true } = {}) {
+  const linee = timbroLinee(cli); if (!linee) return null;
+  const S = 4, W = 230 * S, PAD = 14 * S, FONT = "Helvetica, Arial, sans-serif";
+  const cv = document.createElement("canvas"), ctx = cv.getContext("2d");
+  const fitFont = (txt, size, bold, maxW) => { let s = size; for (; s > 8 * S; s -= S) { ctx.font = `${bold ? "bold " : ""}${s}px ${FONT}`; if (ctx.measureText(txt).width <= maxW) break; } return s; };
+  const maxW = W - 2 * PAD;
+  // la ragione sociale va su due righe se è troppo lunga anche col carattere piccolo
+  let righe = [];
+  const r0 = linee[0]; ctx.font = `bold ${15 * S}px ${FONT}`;
+  if (ctx.measureText(r0).width > maxW * 1.25 && r0.includes(" ")) {
+    // due righe il più possibile uguali, stesso carattere
+    const parole = r0.split(" "); let best = 1, bw = Infinity;
+    for (let i = 1; i < parole.length; i++) { const w = Math.max(ctx.measureText(parole.slice(0, i).join(" ")).width, ctx.measureText(parole.slice(i).join(" ")).width); if (w < bw) { bw = w; best = i; } }
+    const a = parole.slice(0, best).join(" "), b = parole.slice(best).join(" "), fs = Math.min(fitFont(a, 15 * S, true, maxW), fitFont(b, 15 * S, true, maxW));
+    righe.push([a, true, fs], [b, true, fs]);
+  } else righe.push([r0, true]);
+  linee.slice(1).forEach((l) => righe.push([l, false]));
+  righe = righe.filter(([t]) => t).map(([t, b, fs]) => [t, b, fs || fitFont(t, b ? 15 * S : 10.5 * S, b, maxW)]);
+  const gap = 3 * S, hTxt = righe.reduce((h, [, , s]) => h + s * 1.12, 0) + gap * (righe.length - 1);
+  const H = Math.round(hTxt + 2 * PAD);
+  const ang = -2.2 * Math.PI / 180, cw = Math.ceil(W * Math.cos(-ang) + H * Math.sin(-ang)), ch = Math.ceil(W * Math.sin(-ang) + H * Math.cos(-ang));
+  cv.width = cw + 4 * S; cv.height = ch + 4 * S;
+  ctx.translate(cv.width / 2, cv.height / 2); ctx.rotate(ang); ctx.translate(-W / 2, -H / 2);
+  ctx.strokeStyle = inchiostro; ctx.fillStyle = inchiostro;
+  const rr = (x, y, w, h, r) => { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); ctx.stroke(); };
+  ctx.lineWidth = 2.6 * S; rr(1.5 * S, 1.5 * S, W - 3 * S, H - 3 * S, 9 * S);
+  ctx.lineWidth = 1 * S; rr(6 * S, 6 * S, W - 12 * S, H - 12 * S, 6 * S);
+  ctx.textAlign = "center"; ctx.textBaseline = "top"; let y = PAD;
+  for (const [t, b, s] of righe) { ctx.font = `${b ? "bold " : ""}${s}px ${FONT}`; ctx.fillText(t, W / 2, y); y += s * 1.12 + gap; }
+  if (grana) { // inchiostro non uniforme: piccole lacune casuali (seme fisso: stesso timbro a ogni stampa)
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalCompositeOperation = "destination-out";
+    let seed = 0; for (const ch of linee.join("|")) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+    const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+    for (let i = 0; i < (cv.width * cv.height) / (18 * S * S); i++) { ctx.globalAlpha = 0.25 + rnd() * 0.6; ctx.beginPath(); ctx.arc(rnd() * cv.width, rnd() * cv.height, (0.3 + rnd() * 0.9) * S, 0, Math.PI * 2); ctx.fill(); }
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
+  }
+  return { url: cv.toDataURL("image/png"), w: cv.width, h: cv.height };
+}
+// mette l'immagine dentro un riquadro (mm) mantenendo le proporzioni; restituisce la dimensione usata
+function fitImg(d, img, x, y, maxW, maxH, alignBottom = true) {
+  if (!img?.url) return null;
+  let w = maxW, h = img.h * w / img.w; if (h > maxH) { h = maxH; w = img.w * h / img.h; }
+  try { d.addImage(img.url, "PNG", x, alignBottom ? y + maxH - h : y, w, h); } catch { return null; }
+  return { w, h };
+}
+
+function pdfA4(v, firmaU, firmaT, timbro) {
   const { jsPDF } = window.jspdf; const d = new jsPDF({ unit: "mm", format: "a4" });
   const M = 12, W = 210 - 2 * M, X = M; let y = M; const L = labFor(v);
   const txt = (s, x, yy, w, fs = 8, st = "normal", align = "left") => { d.setFont("helvetica", st); d.setFontSize(fs); const lines = d.splitTextToSize(clean(s), w); d.text(lines, align === "center" ? x + w / 2 : x, yy + LH(fs) * 0.8, { align }); return lines.length * LH(fs); };
@@ -118,12 +173,15 @@ function pdfA4(v, firmaU, firmaT) {
   const sh = 30; need(sh); box(X, y, W / 2, sh); box(X + W / 2, y, W / 2, sh);
   txt(`Tecnico Abilitato (Cognome, Nome, Cod. Fiscale, Sigillo)\n${L.tecnico}  ${L.cfTecnico}  ${L.sigillo}`, X + 2, y + 1.5, W / 2 - 4, 7.5);
   txt(`L'Utente (Cognome, Nome, Qualifica presso l'utente)\n${v.utenteNome || ""}${v.utenteQualifica ? " - " + v.utenteQualifica : ""}`, X + W / 2 + 2, y + 1.5, W / 2 - 4, 7.5);
-  const img = (url, x) => { if (!url) return; try { const p = d.getImageProperties(url); const mh = 17, mw = W / 2 - 10; let w = mw, h = p.height * w / p.width; if (h > mh) { h = mh; w = p.width * h / p.height; } d.addImage(url, "PNG", x + (W / 2 - w) / 2, y + sh - h - 1.5, w, h); } catch { } };
-  img(firmaT, X); img(firmaU, X + W / 2);
+  const img = (url, x, bw = W / 2) => { if (!url) return; try { const p = d.getImageProperties(url); const mh = 17, mw = bw - 10; let w = mw, h = p.height * w / p.width; if (h > mh) { h = mh; w = p.width * h / p.height; } d.addImage(url, "PNG", x + (bw - w) / 2, y + sh - h - 1.5, w, h); } catch { } };
+  img(firmaT, X);
+  // con il timbro: timbro a sinistra nel riquadro dell'utente, firma a destra (la firma ha lo sfondo bianco e lo coprirebbe)
+  const tb = timbro ? fitImg(d, timbro, X + W / 2 + 2, y + 9, 50, sh - 10.5) : null;
+  if (tb) img(firmaU, X + W / 2 + tb.w + 2, W / 2 - tb.w - 2); else img(firmaU, X + W / 2);
   return d;
 }
 
-function pdfDich(v, firmaU, firmaT) {
+function pdfDich(v, firmaU, firmaT, timbro) {
   const { jsPDF } = window.jspdf; const d = new jsPDF({ unit: "mm", format: "a4" }); const L = labFor(v); const X = 22, W = 166; let y = 26;
   const t = (s, fs = 11, st = "normal", align = "left", w = W, x = X) => { d.setFont("helvetica", st); d.setFontSize(fs); const lines = d.splitTextToSize(clean(s), w); d.text(lines, align === "center" ? x + w / 2 : x, y, { align }); y += lines.length * LH(fs) + 1.5; };
   t("DICHIARAZIONE", 15, "bold", "center"); t("resa conformemente all'art. 47 del decreto del Presidente della Repubblica 28 dicembre 2000, n. 445 e successive modificazioni", 10, "normal", "center"); y += 6;
@@ -140,14 +198,15 @@ function pdfDich(v, firmaU, firmaT) {
   d.setDrawColor(120); const mot = d.splitTextToSize(clean(v.motivoSigillo || ""), W - 6);
   for (let i = 0; i < Math.max(3, mot.length); i++) { if (mot[i]) { d.setFont("helvetica", "bold"); d.text(mot[i], X + 3, y + 5); } d.line(X, y + 6.5, X + W, y + 6.5); y += 8; }
   y += 12; d.setFont("helvetica", "normal"); d.setFontSize(11);
-  d.text("Luogo e Data:", X + 60, y); d.setFont("helvetica", "bold"); d.text(clean(`${v.luogo || ""}, ${fmtD(v.dataFine || v.data)}`), X + 92, y); y += 14;
+  d.text("Luogo e Data:", X + 60, y); d.setFont("helvetica", "bold"); d.text(clean(`${v.luogo || ""}, ${fmtD(v.dataFine || v.data)}`), X + 92, y); y += 25; // spazio per la firma (alta fino a 20 mm) senza coprire «Luogo e Data»
   d.setFont("helvetica", "normal"); d.text("Firma leggibile:", X + 60, y); d.line(X + 92, y + 1, X + W, y + 1);
   const url = ut ? firmaU : firmaT;
   if (url) { try { const p = d.getImageProperties(url); let h = 20, w = p.width * h / p.height; if (w > 70) { w = 70; h = p.height * w / p.width; } d.addImage(url, "PNG", X + 94, y - h + 0.5, w, h); } catch { } }
+  if (ut && timbro) fitImg(d, timbro, X, y - 24, 56, 24);
   return d;
 }
 
-function pdfThermal(v, firmaU, firmaT) {
+function pdfThermal(v, firmaU, firmaT, timbro) {
   const { jsPDF } = window.jspdf; const L = labFor(v);
   const run = (d) => {
     const X = 4, W = 72; let y = 5;
@@ -177,10 +236,94 @@ function pdfThermal(v, firmaU, firmaT) {
     const sig = (label, url, who) => { t(label, 7, "bold"); if (url) { try { const p = d.getImageProperties(url); let w = 50, h = p.height * w / p.width; if (h > 20) { h = 20; w = p.width * h / p.height; } d.addImage(url, "PNG", X + (W - w) / 2, y, w, h); y += h + 1; } catch { } } else y += 12; d.line(X + 6, y, X + W - 6, y); y += 1.2; t(who, 7, "normal", "center"); };
     sig("Tecnico abilitato", firmaT, `${L.tecnico} - ${L.cfTecnico} - ${L.sigillo}`);
     sig("L'utente", firmaU, `${v.utenteNome || ""}${v.utenteQualifica ? " - " + v.utenteQualifica : ""}`);
+    if (timbro) { y += 1.5; let w = W - 20, h = timbro.h * w / timbro.w; if (h > 30) { h = 30; w = timbro.w * h / timbro.h; } try { d.addImage(timbro.url, "PNG", X + (W - w) / 2, y, w, h); y += h; } catch { } }
     return y + 8;
   };
   const tmp = new jsPDF({ unit: "mm", format: [80, 2000] }); const h = run(tmp);
   const d = new jsPDF({ unit: "mm", format: [80, Math.max(100, Math.ceil(h))] }); run(d); return d;
+}
+
+/* ---------------- Stampa diretta su termica (ESC/POS) ----------------
+   Stesso contenuto del PDF 80 mm, ma come comandi ESC/POS: testo nativo della stampante (nitido e veloce anche via
+   Bluetooth) e firme/timbro come immagini raster. carta: 80 mm = 48 colonne e 576 punti, 58 mm = 32 colonne e 384 punti. */
+const ESC_CARTA = { 80: { cols: 48, dots: 576 }, 58: { cols: 32, dots: 384 } };
+// le stampantine non hanno una tabella caratteri comune: si stampa solo ASCII (à -> a', € -> EUR)
+const escAscii = (s) => clean(s).replace(/[àáÀÁèéÈÉìíÌÍòóÒÓùúÙÚ]/g, (c) => c.normalize("NFD")[0] + "'").replace(/Euro +/g, "EUR ")
+  .normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/°/g, "o").replace(/[^\x20-\x7e\n]/g, "?");
+function escWrap(s, cols) {
+  const out = [];
+  for (const par of escAscii(s).split("\n")) {
+    let line = ""; for (const w of par.split(/ +/)) {
+      if (!line) line = w; else if ((line + " " + w).length <= cols) line += " " + w; else { out.push(line); line = w; }
+      while (line.length > cols) { out.push(line.slice(0, cols)); line = line.slice(cols); }
+    }
+    out.push(line);
+  }
+  return out;
+}
+// immagine (data URL) -> comandi GS v 0 a strisce, bianco/nero a soglia; maxDots = larghezza massima in punti
+function escImage(url, maxDots, maxH = 400) {
+  return new Promise((res) => {
+    if (!url) return res(null);
+    const im = new Image();
+    im.onload = () => {
+      let w = Math.min(maxDots, im.width * 2), h = Math.round(im.height * w / im.width); if (h > maxH) { h = maxH; w = Math.round(im.width * h / im.height); }
+      w = Math.max(8, Math.floor(w / 8) * 8);
+      const cv = document.createElement("canvas"); cv.width = w; cv.height = h; const ctx = cv.getContext("2d");
+      ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w, h); ctx.drawImage(im, 0, 0, w, h);
+      const px = ctx.getImageData(0, 0, w, h).data, bw = w / 8, out = [];
+      for (let y0 = 0; y0 < h; y0 += 128) {
+        const bh = Math.min(128, h - y0), band = new Uint8Array(8 + bw * bh);
+        band.set([0x1d, 0x76, 0x30, 0x00, bw & 255, bw >> 8, bh & 255, bh >> 8]);
+        for (let y = 0; y < bh; y++) for (let x = 0; x < w; x++) {
+          const i = ((y0 + y) * w + x) * 4, lum = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+          if (lum < 150) band[8 + y * bw + (x >> 3)] |= 0x80 >> (x & 7);
+        }
+        out.push(band);
+      }
+      res(out);
+    };
+    im.onerror = () => res(null); im.src = url;
+  });
+}
+async function escposRapporto(v, firmaU, firmaT, timbro, carta = 80) {
+  const { cols, dots } = ESC_CARTA[carta] || ESC_CARTA[80]; const L = labFor(v);
+  const parts = []; const raw = (...b) => parts.push(Uint8Array.from(b.flat()));
+  const enc = (s) => Uint8Array.from([...s].map((c) => c.charCodeAt(0) & 0x7f));
+  const align = (n) => raw(0x1b, 0x61, n), bold = (on) => raw(0x1b, 0x45, on ? 1 : 0), size = (n) => raw(0x1d, 0x21, n);
+  const line = (s) => { parts.push(enc(s)); raw(0x0a); };
+  const t = (s, { b = false, c = false, big = false } = {}) => { if (!s) return; align(c ? 1 : 0); bold(b); if (big) size(0x11); escWrap(s, big ? Math.floor(cols / 2) : cols).forEach(line); if (big) size(0); bold(false); };
+  const lr = (a, b) => { align(0); const bb = escAscii(b); const la = escWrap(a, cols - bb.length - 1); la.forEach((x, i) => line(i === la.length - 1 ? x + " ".repeat(Math.max(1, cols - x.length - bb.length)) + bb : x)); };
+  const sep = () => { align(0); line("-".repeat(cols)); };
+  const img = async (url, maxDots, maxH) => { const r = await escImage(url, maxDots, maxH); if (r) { align(1); r.forEach((x) => parts.push(x)); raw(0x0a); } return !!r; };
+  raw(0x1b, 0x40); raw(0x1b, 0x74, 0x00);
+  t(L.ragione, { b: true, c: true }); t(`${L.indirizzo || ""} ${L.cap || ""}`.trim(), { c: true }); if (L.piva) t(`P.I. ${L.piva}`, { c: true }); sep();
+  t("RAPPORTO DI VERIFICAZIONE PERIODICA RT", { b: true, c: true }); t(v.tipo === "privo" ? "PRIVO DI SIGILLO FISCALE" : "CON SIGILLO FISCALE INTEGRO", { b: true, c: true });
+  t("(Provv. A.E. 28/07/2003 e 28/10/2016)", { c: true }); t(`N. ${v.numero || ""}`, { b: true, c: true }); sep();
+  t("ESERCENTE", { b: true }); t(v.cli?.ragione || ""); if (v.cli?.domicilio) t(v.cli.domicilio); t(`P.IVA ${v.cli?.piva || ""}`);
+  t("UBICAZIONE", { b: true }); t([v.app?.indirizzo, v.app?.localita].filter(Boolean).join(" - ") || "-");
+  t("APPARECCHIO", { b: true }); t(v.app?.modello || ""); t(`Matricola ${v.app?.matricola || ""}`, { b: true });
+  t("Intervento: " + INTERVENTI.filter(([k]) => v.interventi?.[k]).map(([, l]) => l).join(", ")); sep();
+  const val = (k) => v.esiti?.[k] === "si" ? "SI" : v.esiti?.[k] === "no" ? "NO" : "-";
+  t("1.0 ESAME PRELIMINARE", { b: true });
+  PRE.forEach((p) => lr(`${p.c || "   "} ${TX[p.k][1]}`, val(p.k)));
+  if (v.tipoSigillo) t(`Tipo sigillo: ${v.tipoSigillo}. ${SIGILLI[v.tipoSigillo]}`);
+  t(v.tipo === "privo" ? "2.0 RT PRIVO DI SIGILLO" : "2.0 RT CON SIGILLO INTEGRO", { b: true });
+  for (const x of buildTests(v.tipo)) { if (x.head) t(`${x.c} ${x.s}`, { b: true }); else lr(`${x.c} ${x.s}`, val(x.k)); }
+  sep();
+  lr("Firmware presente", v.fwPresente || "-"); if (v.fwAggiornato) lr("Aggiornato a", v.fwAggiornato);
+  lr("Inizio", `${fmtD(v.data)} ${v.oraInizio || ""}`.trim()); lr("Fine", `${fmtD(v.dataFine || v.data)} ${v.oraFine || ""}`.trim());
+  lr("P.I. Laboratorio", L.piva || ""); lr("C.F. Tecnico", L.cfTecnico || ""); sep();
+  t(v.esito === "positivo" ? "ESITO POSITIVO" : v.esito === "negativo" ? "ESITO NEGATIVO" : "ESITO NON DETERMINATO", { b: true, c: true, big: true });
+  if (v.esito === "positivo") t(`Prossima verificazione entro il ${fmtD(addYears(v.data, 2))}`, { b: true, c: true });
+  sep(); t(`${v.luogo || ""}, ${fmtD(v.dataFine || v.data)}`);
+  const sig = async (label, url, who) => { raw(0x0a); t(label, { b: true }); if (!(await img(url, Math.round(dots * 0.7), 200))) raw(0x0a, 0x0a, 0x0a); align(1); line("_".repeat(Math.round(cols * 0.8))); t(who, { c: true }); };
+  await sig("Tecnico abilitato", firmaT, `${L.tecnico} - ${L.cfTecnico} - ${L.sigillo}`);
+  await sig("L'utente", firmaU, `${v.utenteNome || ""}${v.utenteQualifica ? " - " + v.utenteQualifica : ""}`);
+  if (timbro?.url) { raw(0x0a); await img(timbro.url, Math.round(dots * 0.8), 260); }
+  align(0); raw(0x1b, 0x64, 5); raw(0x1d, 0x56, 0x42, 0x00); // avanza e taglia (chi non ha la taglierina lo ignora)
+  const n = parts.reduce((a, p) => a + p.length, 0), out = new Uint8Array(n); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
 }
 
 /* Elenco «Aggiornamenti software» (A4, stesso stile del rapporto: Helvetica, riquadri a filo) */
