@@ -90,10 +90,40 @@ const BT_SERVIZI = [
   "0000ae30-0000-1000-8000-00805f9b34fb", "0000ae3a-0000-1000-8000-00805f9b34fb", "0000ff12-0000-1000-8000-00805f9b34fb",
 ];
 const BT_PREF = "blucheck_termica";
-// velocita: normale | lenta | molto (lenta = blocchi piccoli con pause e testina che scalda di più: stampa più scura e regolare)
+// velocita: normale | lenta | molto (lenta = circa 35 mm/s, molto lenta = 15 mm/s, solo Bluetooth e porta COM; vedi RITMO)
 const btPref = () => { const p = { carta: 80, ...(ls.get(BT_PREF) || {}) }; if (!p.velocita) p.velocita = "lenta"; return p; };
-const RITMO = { normale: { bt: 100, btr: 180, pausa: 12, ser: 256, serPausa: 0 }, lenta: { bt: 50, btr: 50, pausa: 30, ser: 64, serPausa: 30 }, molto: { bt: 20, btr: 20, pausa: 50, ser: 32, serPausa: 60 } };
+// Velocità vera: la stampante non può andare più svelta dei dati che riceve. Si calcola quanta carta fa avanzare ogni byte
+// (righe di testo, avanzamenti, righe di punti delle immagini) e si aspetta quanto serve per non superare i mm al secondo scelti.
+// Le pause fisse non bastavano: Windows, Android e la stampante mettono i dati in coda e la carta usciva alla solita velocità.
+const RITMO = { normale: { bt: 100, btr: 180, ser: 256, mms: 0 }, lenta: { bt: 48, btr: 48, ser: 48, mms: 35 }, molto: { bt: 24, btr: 24, ser: 24, mms: 15 } };
 const ritmo = () => RITMO[btPref().velocita] || RITMO.normale;
+// punti di carta (8 per mm) che ogni byte fa avanzare: LF = una riga (30 punti, per GS ! alta doppia), ESC d n = n righe, GS v 0 = una riga di punti ogni bw byte
+function puntiCarta(b) {
+  const w = new Float32Array(b.length); let alto = 1;
+  for (let i = 0; i < b.length;) {
+    const c = b[i];
+    if (c === 0x0a) { w[i] = 30 * alto; i++; continue; }
+    if (c === 0x1d && b[i + 1] === 0x76 && b[i + 2] === 0x30) { const bw = b[i + 4] | (b[i + 5] << 8), bh = b[i + 6] | (b[i + 7] << 8); for (let k = 0; k < bh; k++) w[i + 8 + k * bw] = 1; i += 8 + bw * bh; continue; }
+    if (c === 0x1d && b[i + 1] === 0x21) { alto = (b[i + 2] & 0x0f) + 1; i += 3; continue; }
+    if (c === 0x1d && b[i + 1] === 0x56) { i += 4; continue; }
+    if (c === 0x1b && b[i + 1] === 0x64) { w[i] = 30 * b[i + 2]; i += 3; continue; }
+    if (c === 0x1b && b[i + 1] === 0x40) { i += 2; continue; }
+    if (c === 0x1b && b[i + 1] === 0x37) { i += 5; continue; }
+    if (c === 0x1b || c === 0x1d) { i += 3; continue; }
+    i++;
+  }
+  return w;
+}
+async function inviaARitmo(bytes, pezzo, scrivi, onProgress, pausaFissa = 0) {
+  const r = ritmo(), w = r.mms ? puntiCarta(bytes) : null, msPunto = r.mms ? 1000 / (r.mms * 8) : 0, t0 = performance.now();
+  const dorme = (ms) => new Promise((ok) => setTimeout(ok, ms)); let punti = 0;
+  for (let i = 0; i < bytes.length; i += pezzo) {
+    await scrivi(bytes.slice(i, i + pezzo));
+    if (w) { for (let k = i; k < Math.min(i + pezzo, bytes.length); k++) punti += w[k]; const resta = t0 + punti * msPunto - performance.now(); if (resta > 1) await dorme(resta); }
+    else if (pausaFissa) await dorme(pausaFissa);
+    onProgress?.(Math.min(1, (i + pezzo) / bytes.length));
+  }
+}
 const btDisponibile = () => !!(navigator.bluetooth && window.isSecureContext);
 const Termica = { device: null, ch: null };
 async function btCollega(scegli) {
@@ -115,15 +145,8 @@ async function btCollega(scegli) {
   throw new Error("La stampante scelta non ha un canale di stampa Bluetooth LE: prova RawBT o «Condividi PDF 80 mm».");
 }
 async function btStampa(bytes, onProgress) {
-  const ch = await btCollega(false), pref = btPref();
-  const r = ritmo(), senzaRisposta = ch.properties.writeWithoutResponse, pezzo = senzaRisposta ? r.bt : r.btr;
-  const pausa = (ms) => new Promise((r) => setTimeout(r, ms));
-  for (let i = 0; i < bytes.length; i += pezzo) {
-    const p = bytes.slice(i, i + pezzo);
-    if (senzaRisposta) { await ch.writeValueWithoutResponse(p); await pausa(r.pausa); }
-    else { await ch.writeValueWithResponse(p); if (pref.velocita !== "normale") await pausa(r.pausa); }
-    onProgress?.(Math.min(1, (i + pezzo) / bytes.length));
-  }
+  const ch = await btCollega(false), r = ritmo(), senzaRisposta = ch.properties.writeWithoutResponse;
+  await inviaARitmo(bytes, senzaRisposta ? r.bt : r.btr, (p) => senzaRisposta ? ch.writeValueWithoutResponse(p) : ch.writeValueWithResponse(p), onProgress, senzaRisposta ? 12 : 0);
 }
 /* Porta seriale (Web Serial, Chrome/Edge su computer): la stampante collegata via USB o abbinata in Bluetooth classico ha una
    porta COM; ci si mandano gli stessi comandi ESC/POS, senza driver: carta lunga quanto la stampa, caratteri nativi e taglio. */
@@ -140,8 +163,7 @@ async function serStampa(bytes, scegli, onProgress) {
   try { if (!port.writable) await port.open({ baudRate: btPref().baud || 9600 }); }
   catch (e) { Seriale.port = null; throw new Error("Non riesco ad aprire la porta: forse la usa un altro programma (o la coda di stampa di Windows), oppure la stampante è spenta. Chiudi gli altri programmi e riprova, o scegli un'altra porta."); }
   const w = port.writable.getWriter();
-  const r = ritmo(), pausa = (ms) => new Promise((ok) => setTimeout(ok, ms));
-  try { for (let i = 0; i < bytes.length; i += r.ser) { await w.write(bytes.slice(i, i + r.ser)); if (r.serPausa) await pausa(r.serPausa); onProgress?.(Math.min(1, (i + r.ser) / bytes.length)); } }
+  try { await inviaARitmo(bytes, ritmo().ser, (p) => w.write(p), onProgress); }
   finally { w.releaseLock(); }
   await port.close().catch(() => { }); // la porta torna libera per Windows e gli altri programmi
 }

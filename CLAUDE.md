@@ -85,7 +85,7 @@ Questo software fa parte del progetto BluCode Informatica. La memoria condivisa 
       della stampante (USB o Bluetooth classico abbinato, SPP ammesso), 9600 baud, porta chiusa dopo ogni stampa; carta lunga quanto il
       contenuto e taglio, senza driver. PDF 80 mm con caratteri +25% (`K` in `pdfThermal`) perché sulla termica il testo piccolo esce sbiadito.
       «Velocità stampa» Normale / Lenta / Molto lenta (`velocita` in localStorage `blucheck_termica`, nel pannello del rapporto e nella prova):
-      predefinita Lenta. Bluetooth e porta COM mandano pezzi più piccoli con pause (`RITMO`/`ritmo` in common.js) e l'ESC/POS comincia con ESC 7
+      predefinita Lenta. Bluetooth e porta COM mandano i dati al ritmo della carta (`inviaARitmo`/`puntiCarta`/`RITMO` in common.js: Lenta 35 mm/s, Molto lenta 15 mm/s; pause fisse non bastano perché Windows/Android/stampante mettono in coda; RawBT non si rallenta) e l'ESC/POS comincia con ESC 7
       (meno punti scaldati insieme e più pausa, tempo di riscaldamento di fabbrica 80 per non sbavare; `escCalore` in pdf.js). Per il PDF da Windows
       la velocità si regola nel driver. Nell'ESC/POS niente grassetto (ESC E sbava sulla MTP-3) ed etichette accorciate per stare in una riga
       accanto a SI/NO (`CORTE`, `SIG_CORTI` in `escposRapporto`).

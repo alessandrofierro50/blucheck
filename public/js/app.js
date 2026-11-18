@@ -1171,7 +1171,7 @@ function panelTermica(v) {
 }
 // velocità di stampa (Bluetooth, RawBT, USB/COM): blocchi più piccoli con pause e testina più lenta = stampa più scura e regolare
 const velocitaSeg = () => { const v = btPref().velocita; return `<div class="field"><span>Velocità stampa</span><div class="seg wide choose" role="group">${[["normale", "Normale"], ["lenta", "Lenta"], ["molto", "Molto lenta"]].map(([k, l]) => `<button data-act="bt-vel" data-v="${k}" aria-pressed="${v === k}">${l}</button>`).join("")}</div>
-    <small class="faint">Più lenta se la stampa esce chiara, a strisce o con righe saltate. Col PDF da Windows la velocità si regola nel driver.</small></div>`; };
+    <small class="faint">Vale per «Stampa via Bluetooth» e «Stampa da USB / porta COM» (Lenta circa 35 mm/s, Molto lenta 15 mm/s). Con RawBT e col PDF da Windows la velocità la decidono l'app o il driver.</small></div>`; };
 /* prova di stampa termica (Impostazioni): scheda di verifica in bianco da compilare a mano, con Bluetooth, RawBT o PDF */
 const PROVA = { tipo: "integro" };
 function panelProvaTermica() {
