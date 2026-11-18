@@ -100,6 +100,7 @@ async function leggiQrAe(url, { ttl = 10 * 60000 } = {}) {
   if (!isAeUrl(url)) { const e = new Error("Il QR non porta al servizio dell'Agenzia delle Entrate."); e.status = 400; throw e; }
   const c = cache.get(url); if (c && Date.now() - c.t < ttl) return c.v;
   let html, ultimo = "";
+  // NB: con «accept: text/html» da solo il sito dell'Agenzia risponde 406 (provato dalla VPS il 2026-11-18): serve l'accept di un browser.
   // due tentativi: il sito dell'Agenzia a volte chiude la prima connessione o risponde lento
   for (let tent = 1; tent <= 2 && html === undefined; tent++) {
     const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 15000);
