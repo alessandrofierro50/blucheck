@@ -437,10 +437,10 @@ function pdfAggiornamenti(rows, L, titolo) {
   const header = () => { let x = X; for (const [l, w] of cols) { d.setFillColor(235); d.rect(x, y, w, 7, "FD"); txt(l, x + 1.5, y + 1.6, w - 3, 8, "bold"); x += w; } y += 7; };
   header();
   if (!rows.length) { d.rect(X, y, W, 8); txt("Nessun cliente.", X + 2, y + 2, W - 4, 8.5); y += 8; }
-  for (const { c, st } of rows) {
+  for (const { c, st, rt } of rows) {
     const a = c.aggSw || {};
     const cells = [
-      [[c.ragione || "", "bold", 8.5], [[c.piva ? "P.IVA " + c.piva : "", c.telefono ? "Tel. " + c.telefono : ""].filter(Boolean).join(" - "), "normal", 7.5]],
+      [[c.ragione || "", "bold", 8.5], [[c.piva ? "P.IVA " + c.piva : "", c.telefono ? "Tel. " + c.telefono : ""].filter(Boolean).join(" - "), "normal", 7.5], [rt?.length ? "RT " + rt.join(", ") : "", "normal", 7.5]],
       [[c.software || "non indicato", "normal", 8], [Object.keys(c.abbSw || {}).filter((k) => c.abbSw[k]?.canoni > 0).sort().length ? "Abb. " + Object.keys(c.abbSw).filter((k) => c.abbSw[k]?.canoni > 0).sort().join(", ") : "", "normal", 7]],
       [[st.txt, "bold", 8]],
       [[st.k === "da_fare" ? "" : fmtD(a.data), "normal", 8]],

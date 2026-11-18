@@ -374,11 +374,13 @@ function panelAbbSw(c) {
     ${anni.map((a) => { const x = c.abbSw[a]; return `<tr><td class="mono">${a}</td><td>${x.canoni}</td><td class="mono">${euroAbb(x.importo)}</td>
       <td>${(x.documenti || []).map((d) => `${esc(d.documento)}${d.data ? " del " + fmtD(d.data) : ""}`).join("<br>")}</td></tr>`; }).join("")}</tbody></table></div></div>`;
 }
+// matricole dei registratori del cliente (dismessi esclusi); quelli dello storico senza matricola = «da completare»
+const matricoleCli = (c) => S.apparecchi.filter((a) => a.clienteId === c.id && !a.dismesso).map((a) => a.matricola || "da completare");
 function righeAggiornamenti() {
   const q = norm(UI.qg);
-  return S.clienti.filter(usaGestionale).map((c) => ({ c, st: statoAgg(c) }))
+  return S.clienti.filter(usaGestionale).map((c) => ({ c, st: statoAgg(c), rt: matricoleCli(c) }))
     .filter((r) => UI.fg === "tutti" || (UI.fg === "da_rinnovare" ? daRinnovare(r.c) : r.st.k === UI.fg))
-    .filter((r) => !q || norm([r.c.ragione, r.c.piva, r.c.domicilio, r.c.telefono, r.c.software, r.c.aggSw?.note, ...(r.c.nomiBlugest || [])].join(" ")).includes(q))
+    .filter((r) => !q || norm([r.c.ragione, r.c.piva, r.c.domicilio, r.c.telefono, r.c.software, r.c.aggSw?.note, ...(r.c.nomiBlugest || []), ...r.rt].join(" ")).includes(q))
     .sort((x, y) => norm(x.c.ragione).localeCompare(norm(y.c.ragione)));
 }
 function viewAggiornamenti() {
@@ -391,9 +393,9 @@ function viewAggiornamenti() {
     <div class="row"><button class="btn sm" data-act="agg-txt">Esporta TXT</button><button class="btn sm" data-act="agg-pdf">Esporta PDF</button></div></div>
   <div class="stats">${stat("tutti", "", tutti.length, "Con gestionale")}${stat("da_fare", "warn", n("da_fare"), "Da fare")}${stat("aggiornato", "okk", n("aggiornato"), "Aggiornati")}${stat("non_installabile", "bad", n("non_installabile"), "Non installabili")}${(() => { const k = S.clienti.filter(usaGestionale).filter(daRinnovare).length; return k || UI.fg === "da_rinnovare" ? stat("da_rinnovare", "warn", k, `Abbonamento ${annoAbb()} da rinnovare`) : ""; })()}</div>
   ${senza ? `<p class="faint" style="margin:0">${senza} ${senza === 1 ? "cliente non ha" : "clienti non hanno"} ancora la risposta a «Usa un software gestionale?»: si indica nella scheda del cliente.</p>` : ""}
-  <input type="search" id="qAgg" placeholder="Cerca cliente, P.IVA, software, note…" value="${esc(UI.qg)}" data-bind="qg">
-  ${rows.length ? `<div class="list">${rows.map(({ c, st }) => `<button class="item" data-act="open-agg" data-id="${c.id}"><span class="stripe ${st.cls}"></span>
-    <span style="min-width:0"><span class="t">${esc(c.ragione)}</span><br><span class="s">${c.software ? `<span class="tag">${esc(c.software)}</span>` : ""}${abbTags(c)}${esc(st.det || (c.telefono ? c.telefono : ""))}</span></span>
+  <input type="search" id="qAgg" placeholder="Cerca cliente, P.IVA, matricola, software, note…" value="${esc(UI.qg)}" data-bind="qg">
+  ${rows.length ? `<div class="list">${rows.map(({ c, st, rt }) => `<button class="item" data-act="open-agg" data-id="${c.id}"><span class="stripe ${st.cls}"></span>
+    <span style="min-width:0"><span class="t">${esc(c.ragione)}</span>${rt.length ? `<br><span class="s">RT <span class="mono">${rt.map(esc).join(", ")}</span></span>` : ""}<br><span class="s">${c.software ? `<span class="tag">${esc(c.software)}</span>` : ""}${abbTags(c)}${esc(st.det || (c.telefono ? c.telefono : ""))}</span></span>
     <span class="when"><span class="pill ${st.cls}">${st.txt}</span></span></button>`).join("")}</div>`
     : `<div class="list"><div class="empty">${tutti.length ? "Nessun cliente con questi filtri." : `<b>Nessun cliente con software gestionale.</b><span>Nella scheda del cliente rispondi «Sì» a «Usa un software gestionale?» e indica quale.</span>`}</div></div>`}`;
 }
@@ -402,7 +404,7 @@ function sheetAgg() {
   const d = UI.sheet.draft, st = statoAgg(c);
   const b = (act, v, cur, l) => `<button data-act="${act}" data-v="${v}" aria-pressed="${cur === v}">${l}</button>`;
   return head(esc(c.ragione), `<button class="btn sm" data-act="open-cli" data-id="${c.id}">Scheda cliente</button>`) + `<div class="sheet-body gut">
-    <div class="panel"><dl class="kv"><dt>Software</dt><dd>${esc(c.software || "Non indicato")}</dd><dt>Telefono</dt><dd>${esc(c.telefono || "—")}</dd><dt>Domicilio</dt><dd>${esc(c.domicilio || "—")}</dd>
+    <div class="panel"><dl class="kv"><dt>Software</dt><dd>${esc(c.software || "Non indicato")}</dd><dt>Registratori</dt><dd class="mono">${esc(matricoleCli(c).join(", ") || "—")}</dd><dt>Telefono</dt><dd>${esc(c.telefono || "—")}</dd><dt>Domicilio</dt><dd>${esc(c.domicilio || "—")}</dd>
       <dt>Stato attuale</dt><dd><span class="pill ${st.cls}">${st.txt}</span> ${esc(st.det)}</dd></dl></div>
     ${panelAbbSw(c)}
     <div class="panel"><h2>Aggiornamenti</h2>
@@ -434,8 +436,9 @@ function aggTitolo() {
 function exportAggTxt() {
   const rows = righeAggiornamenti(), L = lab();
   const out = [L.ragione || "", aggTitolo().toUpperCase(), `Al ${fmtD(todayISO())} - ${rows.length} clienti`, ""];
-  for (const { c, st } of rows) {
+  for (const { c, st, rt } of rows) {
     out.push("-".repeat(60), c.ragione || "");
+    out.push(`Registratori: ${rt.length ? rt.join(", ") : "nessuno"}`);
     if (c.piva) out.push(`P.IVA: ${c.piva}`);
     if (c.domicilio) out.push(`Domicilio: ${c.domicilio}`);
     if (c.telefono) out.push(`Telefono: ${c.telefono}`);
