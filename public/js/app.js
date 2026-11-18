@@ -190,6 +190,7 @@ const AIUTI = {
     campi: [
       ["Matricola", "Quella sul corpo dell'apparecchio: è il dato che lo identifica davvero."],
       ["QR dell'Agenzia", "Inquadrandolo, i dati dell'apparecchio si compilano da soli."],
+      ["Importa QR da file", "Foto, PDF o ZIP con tanti QR delle targhette: vedi il riepilogo (nuovi, da completare, già presenti, non leggibili) e poi salvi tutto insieme."],
       ["Prossima verificazione", "Due anni dall'ultima: il programma la calcola e la mette nelle scadenze."],
     ],
   },
@@ -322,7 +323,7 @@ function viewApparecchi() {
   const list = S.apparecchi.filter((a) => !q || norm([a.matricola, a.modello, a.indirizzo, a.localita, a.firmware, cliente(a.clienteId)?.ragione].join(" ")).includes(q))
     .sort((x, y) => norm(cliente(x.clienteId)?.ragione).localeCompare(norm(cliente(y.clienteId)?.ragione)));
   return `<div class="spread"><h2>Apparecchi <span class="faint">(${S.apparecchi.length})</span></h2>
-    <div class="row"><button class="btn sm" data-act="qr-new">Leggi QR</button><button class="btn primary sm" data-act="new-app">+ Apparecchio</button></div></div>
+    <div class="row"><button class="btn sm" data-act="qr-new">Leggi QR</button><button class="btn sm" data-act="qr-import">Importa QR da file</button><button class="btn primary sm" data-act="new-app">+ Apparecchio</button></div></div>
   <input type="search" id="qApp" placeholder="Cerca matricola, modello, cliente, firmware…" value="${esc(UI.qa)}" data-bind="qa">
   ${list.length ? `<div class="list">${list.map((a) => {
     const sc = scadenze(a); const worst = sc.map((s) => stato(s.data)).sort((x, y) => (x.n ?? -1e9) - (y.n ?? -1e9))[0];
@@ -641,7 +642,7 @@ function renderSheet() {
   if ((s.kind === "app-edit" || s.kind === "cli-edit") && root.dataset.k === key && root.innerHTML) { refreshSheetDyn(); return; }
   const keep = root.dataset.k === key ? ($(".sheet", root)?.scrollTop || 0) : 0;
   root.dataset.k = key;
-  const body = ({ app: sheetApp, "app-edit": sheetAppEdit, cli: sheetCli, "cli-edit": sheetCliEdit, ver: sheetVer, agg: sheetAgg })[s.kind]();
+  const body = ({ app: sheetApp, "app-edit": sheetAppEdit, cli: sheetCli, "cli-edit": sheetCliEdit, ver: sheetVer, agg: sheetAgg, qrimp: () => window.sheetQrImp() })[s.kind]();
   root.innerHTML = `<div class="sheet-wrap" data-act="sheet-bg"><div class="sheet" role="dialog" aria-modal="true">${body}</div></div>`;
   if (keep) $(".sheet", root).scrollTop = keep;
   document.body.style.overflow = "hidden";
@@ -957,6 +958,15 @@ $("#qrFile").addEventListener("change", async (e) => {
 });
 function setVal(id, v) { const el = document.getElementById(id); if (el) { el.value = v; el.classList.add("hl"); } }
 const isAeUrl = (t) => /^https:\/\/ivaservizi\.agenziaentrate\.gov\.it\/ser\/mobile\/fiscalizzazione\//i.test(String(t || ""));
+// «Importa QR da file» (public/js/importa-qr.js) si carica solo quando serve; cambiare ?v= a ogni modifica del file
+let importaQrCaricato = null;
+function caricaImportaQr() {
+  return importaQrCaricato ||= new Promise((resolve, reject) => {
+    const sc = document.createElement("script"); sc.src = "/js/importa-qr.js?v=20261118";
+    sc.onload = resolve; sc.onerror = () => { importaQrCaricato = null; sc.remove(); reject(new Error("caricamento")); };
+    document.head.appendChild(sc);
+  });
+}
 async function leggiAe(url) { return (await api("GET", "/api/qr/ae?url=" + encodeURIComponent(url))).dati; }
 async function applyQR(res) {
   if (qrTarget === "check" && UI.form) {
@@ -1158,6 +1168,7 @@ document.addEventListener("click", async (e) => {
     case "riattiva-stesso": case "riattiva-nuovo": await riattivaCliente(id, act === "riattiva-nuovo"); break;
     case "edit-cli": if (!guardWrite()) break; openSheet({ kind: "cli-edit", id, draft: { ...cliente(id) } }); break;
     case "qr-scan": scanQR("app"); break;
+    case "qr-import": if (!guardWrite()) break; try { await caricaImportaQr(); window.qiNuovo(); openSheet({ kind: "qrimp" }); } catch { toast("Funzione non disponibile: ricarica la pagina e riprova."); } break;
     case "qr-check": scanQR("check"); break;
     case "fw-agg": if (UI.form) { UI.form.fwAggiornato = el.dataset.v; setVal("f_fwAggiornato", el.dataset.v); saveDraft(); refreshFormDyn(); toast("Firmware aggiornato a " + el.dataset.v); } break;
     case "ae-refresh": await aeRefresh(id, el); break;

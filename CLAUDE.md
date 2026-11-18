@@ -20,7 +20,7 @@ Questo software fa parte del progetto BluCode Informatica. La memoria condivisa 
 - Node.js 20, Express, SQLite (better-sqlite3), pm2. Una sola istanza (SQLite).
 - `server.js` API, abbonamenti, pagamenti, acquisto dal sito, Console · `contratto.js` contratto PDF dell'acquisto · `abbonamento.js` fasi e modelli email · `pagamenti.js` fatturazione, Stripe/PayPal, XML, proforma · `test/` prove (e2e con gestori simulati) · `ae-qr.js` lettura della pagina AdE del QR · `public/js/app.js` app tecnici · `public/js/admin.js` superuser · `public/js/pdf.js` moduli PDF.
 - Le password e le chiavi stanno solo nel `.env` del server, mai nel repository.
-- Cache del browser: js e css restano in cache 1 ora, le pagine HTML no. A ogni modifica di `public/js` o `public/css` cambiare `?v=AAAAMMGG`
+- Cache del browser: js e css restano in cache 1 ora, le pagine HTML no. A ogni modifica di `public/js` o `public/css` cambiare `?v=AAAAMMGG` (più modifiche nello stesso giorno: aggiungere una lettera, es. `20261118b`)
   in `public/app.html`, `admin.html` e `index.html`, altrimenti i clienti tengono il codice vecchio dopo l'aggiornamento.
 - [x] Acquisto dal sito (2026-11-03, contratto comune `comune/acquisto-dal-sito.md`, modello BluGest 708dc08): `GET/POST /api/public/acquisto`
       (`server.js`, CORS del sito su tutto `/api/public/*`): SOLO annuale, piani attivi con prezzo dal listino (`code` = id del piano: solo/team/lab),
@@ -67,3 +67,14 @@ Questo software fa parte del progetto BluCode Informatica. La memoria condivisa 
       Arretrati (scaduti prima del periodo) in cima, si possono togliere. Tasti Visualizza tutti / Verifiche / DGFE / Aggiornamento software
       (anche cliccando i riquadri). Export TXT (`exportPlanningTxt`) e PDF A4 con caselle «Fatto» (`pdfPlanning` in `public/js/pdf.js`).
       Solo frontend: nessuna modifica al server o al database.
+- [x] Importa QR da file (2026-11-18): Apparecchi > «Importa QR da file» (`public/js/importa-qr.js`, caricato da `app.js` solo al clic con
+      `caricaImportaQr`, `?v=` da cambiare a ogni modifica del file; pannello `qrimp`, eventi propri `data-qi-act` / `data-qi-sel`).
+      Il browser legge foto, PDF (pdf.js 4.10.38 legacy in `public/vendor/pdfjs`, import dinamico) e ZIP (lettore interno con
+      `DecompressionStream`, niente librerie; ZIP64, ZIP annidati e file cifrati segnalati) e cerca TUTTI i QR di ogni immagine/pagina con jsQR
+      (copre di bianco quello trovato e riprova, a più risoluzioni). Solo i QR della pagina AdE vanno al server: `POST /api/importa-qr/leggi`
+      (max 20 indirizzi, a gruppi di 10 per l'avanzamento, cache AdE di 1 ora) e `POST /api/importa-qr` {urls, escludi, conferma}.
+      Riepilogo: `completa` (cliente con stessa P.IVA, o ragione sociale, che ha un registratore dello storico senza matricola: lo si completa
+      e si toglie la nota «IMPORTATO DALLO STORICO…»), `nuovo` (sul cliente trovato, o su un cliente nuovo creato con denominazione e P.IVA
+      dell'Agenzia, uno solo per esercente), `presente`/`invariato` (stessa matricola: modello, firmware, QR, dati AdE e ultima verifica se più
+      recente e positiva; il cliente non si cambia, si avvisa se l'Agenzia indica un altro esercente), `doppio`, `errore`. Cliente trovato per nome
+      senza P.IVA: gliela si aggiunge. Alla conferma backup `data/backup/blucheck-prima-import-qr-*.db` e una transazione. Prova: `test/importa-qr.mjs`.
