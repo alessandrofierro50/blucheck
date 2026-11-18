@@ -8,7 +8,7 @@ const S = {
   lastSync: null, loaded: false,
 };
 const UI = { tab: "scadenze", filtro: "tutte", tipo: "tutti", q: "", qa: "", qc: "", qv: "", qg: "", fg: "tutti", sheet: null, form: null, confirm: null, set: null };
-const VALID_TABS = ["scadenze", "apparecchi", "clienti", "aggiornamenti", "verifiche", "impostazioni"];
+const VALID_TABS = ["scadenze", "planning", "apparecchi", "clienti", "aggiornamenti", "verifiche", "impostazioni"];
 let vaiAbb = false;
 const isAdmin = () => S.me?.ruolo === "admin";
 const readonly = () => S.abb?.accesso === "lettura";
@@ -173,6 +173,17 @@ const AIUTI = {
     ],
     consiglio: "Guarda questa pagina all'inizio della settimana: è da qui che nasce il giro dei tecnici.",
   },
+  planning: {
+    titolo: "Planning",
+    serve: "Il lavoro da fare in un giorno, in un mese o da una data a un'altra: verificazioni periodiche, DGFE e aggiornamenti software, raggruppati per giorno e per cliente.",
+    campi: [
+      ["Giorno / Mese / Da data a data", "Scegli il periodo; con ‹ e › passi al giorno, al mese o al periodo prima e dopo, «Oggi» torna a oggi."],
+      ["Arretrati", "Le scadenze già passate prima del periodo: in cima, da recuperare per prime. Togli la spunta per vedere solo il periodo."],
+      ["Aggiornamenti software", "Quelli ancora «da fare» nella sezione Aggiornamenti: si fanno nella stessa visita della verificazione o del DGFE. I clienti senza scadenze nel periodo sono in fondo, da fissare."],
+      ["Esporta TXT / PDF", "Il planning con il periodo e i filtri scelti, con le caselle da spuntare: da stampare o dare ai tecnici."],
+    ],
+    consiglio: "I clienti cessati e gli apparecchi dismessi non compaiono, come nelle Scadenze.",
+  },
   apparecchi: {
     titolo: "Apparecchi",
     serve: "I registratori telematici che segui: matricola, modello, cliente e data dell'ultima verificazione.",
@@ -255,7 +266,7 @@ function render(fromSync) {
   if (fromSync && UI.tab === "impostazioni") { renderBar(); return; }
   const active = document.activeElement, aid = active?.id, pos = active?.selectionStart;
   let html = banners();
-  html += ({ scadenze: viewScadenze, apparecchi: viewApparecchi, clienti: viewClienti, aggiornamenti: viewAggiornamenti, verifiche: viewVerifiche, impostazioni: viewImpostazioni })[UI.tab]();
+  html += ({ scadenze: viewScadenze, planning: viewPlanning, apparecchi: viewApparecchi, clienti: viewClienti, aggiornamenti: viewAggiornamenti, verifiche: viewVerifiche, impostazioni: viewImpostazioni })[UI.tab]();
   m.innerHTML = html;
   if (aid) { const el = document.getElementById(aid); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch { } } }
   renderBar();
