@@ -90,7 +90,10 @@ const BT_SERVIZI = [
   "0000ae30-0000-1000-8000-00805f9b34fb", "0000ae3a-0000-1000-8000-00805f9b34fb", "0000ff12-0000-1000-8000-00805f9b34fb",
 ];
 const BT_PREF = "blucheck_termica";
-const btPref = () => ({ carta: 80, lenta: false, ...(ls.get(BT_PREF) || {}) });
+// velocita: normale | lenta | molto (lenta = blocchi piccoli con pause e testina che scalda di più: stampa più scura e regolare)
+const btPref = () => { const p = { carta: 80, ...(ls.get(BT_PREF) || {}) }; if (!p.velocita) p.velocita = "lenta"; return p; };
+const RITMO = { normale: { bt: 100, btr: 180, pausa: 12, ser: 256, serPausa: 0 }, lenta: { bt: 50, btr: 50, pausa: 30, ser: 64, serPausa: 30 }, molto: { bt: 20, btr: 20, pausa: 50, ser: 32, serPausa: 60 } };
+const ritmo = () => RITMO[btPref().velocita] || RITMO.normale;
 const btDisponibile = () => !!(navigator.bluetooth && window.isSecureContext);
 const Termica = { device: null, ch: null };
 async function btCollega(scegli) {
@@ -113,12 +116,12 @@ async function btCollega(scegli) {
 }
 async function btStampa(bytes, onProgress) {
   const ch = await btCollega(false), pref = btPref();
-  const senzaRisposta = ch.properties.writeWithoutResponse, pezzo = pref.lenta ? 20 : senzaRisposta ? 100 : 180;
+  const r = ritmo(), senzaRisposta = ch.properties.writeWithoutResponse, pezzo = senzaRisposta ? r.bt : r.btr;
   const pausa = (ms) => new Promise((r) => setTimeout(r, ms));
   for (let i = 0; i < bytes.length; i += pezzo) {
     const p = bytes.slice(i, i + pezzo);
-    if (senzaRisposta) { await ch.writeValueWithoutResponse(p); await pausa(pref.lenta ? 25 : 12); }
-    else await ch.writeValueWithResponse(p);
+    if (senzaRisposta) { await ch.writeValueWithoutResponse(p); await pausa(r.pausa); }
+    else { await ch.writeValueWithResponse(p); if (pref.velocita !== "normale") await pausa(r.pausa); }
     onProgress?.(Math.min(1, (i + pezzo) / bytes.length));
   }
 }
@@ -137,7 +140,8 @@ async function serStampa(bytes, scegli, onProgress) {
   try { if (!port.writable) await port.open({ baudRate: btPref().baud || 9600 }); }
   catch (e) { Seriale.port = null; throw new Error("Non riesco ad aprire la porta: forse la usa un altro programma (o la coda di stampa di Windows), oppure la stampante è spenta. Chiudi gli altri programmi e riprova, o scegli un'altra porta."); }
   const w = port.writable.getWriter();
-  try { for (let i = 0; i < bytes.length; i += 256) { await w.write(bytes.slice(i, i + 256)); onProgress?.(Math.min(1, (i + 256) / bytes.length)); } }
+  const r = ritmo(), pausa = (ms) => new Promise((ok) => setTimeout(ok, ms));
+  try { for (let i = 0; i < bytes.length; i += r.ser) { await w.write(bytes.slice(i, i + r.ser)); if (r.serPausa) await pausa(r.serPausa); onProgress?.(Math.min(1, (i + r.ser) / bytes.length)); } }
   finally { w.releaseLock(); }
   await port.close().catch(() => { }); // la porta torna libera per Windows e gli altri programmi
 }
