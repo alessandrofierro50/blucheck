@@ -833,6 +833,50 @@ app.delete("/api/dati/:coll/:id", auth, azOnly, (req, res) => {
   else db.prepare("UPDATE dati SET eliminato=1, data='{}', aggiornato=? WHERE azienda_id=? AND coll=? AND id=?").run(nowISO(), req.azienda.id, coll, id);
   res.json({ ok: true });
 });
+/* ---------- import dello storico (clienti con l'ultima verificazione fatta prima di BluCheck) ----------
+   Il file lo prepara l'assistenza dai fogli del laboratorio (formato "blucheck-storico-1"). Prima l'anteprima, poi la conferma:
+   alla conferma si fa un backup del database e si scrive tutto in una sola transazione. I clienti già presenti (stessa ragione
+   sociale) si saltano, così un secondo import dello stesso file non crea doppioni. Ogni cliente riceve un apparecchio
+   "da completare" con la data dell'ultima verificazione: la scadenza biennale parte da lì. */
+const normRagione = (s) => String(s || "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
+function leggiStorico(body, aziendaId) {
+  if (body?.formato !== "blucheck-storico-1" || !Array.isArray(body.clienti)) fail(400, "File non riconosciuto: serve un file di storico BluCheck (formato blucheck-storico-1).");
+  if (body.clienti.length > 5000) fail(413, "Troppi clienti in un solo file (massimo 5000).");
+  const esistenti = new Set(db.prepare("SELECT data FROM dati WHERE azienda_id=? AND coll='clienti' AND eliminato=0").all(aziendaId).map((r) => normRagione(JSON.parse(r.data).ragione)));
+  const nuovi = [], saltati = [], visti = new Set();
+  for (const c of body.clienti) {
+    const ragione = str(c?.ragione, 200).toUpperCase(); const k = normRagione(ragione);
+    if (!k) continue;
+    if (esistenti.has(k) || visti.has(k)) { saltati.push(ragione); continue; }
+    visti.add(k);
+    const storico = (Array.isArray(c.storicoVerifiche) ? c.storicoVerifiche : []).filter(isDate).sort();
+    const ultima = isDate(c.ultimaVerifica) ? c.ultimaVerifica : (storico[storico.length - 1] || "");
+    nuovi.push({ ragione, domicilio: str(c.domicilio, 200).toUpperCase(), note: str(c.note, 1000), cessato: !!c.cessato, verificato: !!c.verificato, ultima, storico, segnalazioni: str(c.segnalazioni, 1000) });
+  }
+  return { nuovi, saltati };
+}
+app.post("/api/importa-storico", auth, azOnly, solo("admin"), wrap(async (req, res) => {
+  const { nuovi, saltati } = leggiStorico(req.body, req.azienda.id);
+  const riepilogo = { nuovi: nuovi.length, cessati: nuovi.filter((c) => c.cessato).length, verificati: nuovi.filter((c) => c.verificato).length, senza_data: nuovi.filter((c) => !c.ultima).length, saltati };
+  if (!req.body.conferma) return res.json({ anteprima: true, ...riepilogo });
+  if (!nuovi.length) return res.json({ importati: 0, ...riepilogo });
+  const dir = path.join(path.dirname(db.name), "backup");
+  fs.mkdirSync(dir, { recursive: true });
+  const backup = path.join(dir, `blucheck-prima-import-${new Date().toISOString().replace(/[:.]/g, "-")}.db`);
+  await db.backup(backup);
+  const fonte = str(req.body.fonte, 200);
+  db.transaction(() => {
+    for (const c of nuovi) {
+      const cid = uid(), aid = uid();
+      salvaDato(req.azienda.id, "clienti", cid, { id: cid, ragione: c.ragione, piva: "", domicilio: c.domicilio, telefono: "", email: "", referente: "", note: [c.note, c.segnalazioni].filter(Boolean).join("\n"),
+        cessato: c.cessato, verificato: c.verificato, verificatoIl: c.verificato ? oggi() : "", storicoVerifiche: c.storico, importato: { il: oggi(), fonte } }, req.user);
+      salvaDato(req.azienda.id, "apparecchi", aid, { id: aid, clienteId: cid, modello: "", matricola: "", indirizzo: "", localita: c.domicilio, firmware: "", firmwareData: "",
+        ultimaVerifica: c.ultima, dgfeAnnuale: false, ultimoDgfe: "", dismesso: false, note: "IMPORTATO DALLO STORICO: MODELLO E MATRICOLA DA COMPLETARE ALLA PROSSIMA VERIFICA.", importato: true }, req.user);
+    }
+  })();
+  registra(req.user.email, "import_storico", `${req.azienda.ragione}: ${nuovi.length} clienti (${riepilogo.cessati} cessati), ${saltati.length} già presenti; backup ${path.basename(backup)}`, req.ip);
+  res.json({ importati: nuovi.length, backup: path.basename(backup), ...riepilogo });
+}));
 app.get("/api/firma-tecnico/:id", auth, azOnly, (req, res) => {
   const u = db.prepare("SELECT firma FROM utenti WHERE id=? AND azienda_id=?").get(str(req.params.id, 64), req.azienda.id);
   res.json({ firma: u?.firma || "" });

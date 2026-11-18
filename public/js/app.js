@@ -132,6 +132,9 @@ function guardWrite() {
 /* ============================== derivati ============================== */
 const cliente = (id) => S.clienti.find((c) => c.id === id);
 const apparecchio = (id) => S.apparecchi.find((a) => a.id === id);
+// Segni sul cliente: «cessato» lo toglie per sempre dalle scadenze; «verificato» è il controllo iniziale fatto dal laboratorio
+// (aggiornamenti, verificazione periodica, DGFE annuale sui DTR). I clienti importati dallo storico partono «da verificare».
+const cliPills = (c) => (c?.cessato ? ` <span class="pill bad">CESSATO</span>` : c?.verificato ? ` <span class="pill ok">VERIFICATO</span>` : c?.importato ? ` <span class="pill warn">DA VERIFICARE</span>` : "");
 function scadenze(a) {
   const out = [{ tipo: "VP", label: "Verificazione periodica", ultima: a.ultimaVerifica, data: a.ultimaVerifica ? addYears(a.ultimaVerifica, 2) : "" }];
   if (a.dgfeAnnuale) out.push({ tipo: "DGFE", label: "DGFE (annuale)", ultima: a.ultimoDgfe, data: a.ultimoDgfe ? addYears(a.ultimoDgfe, 1) : "" });
@@ -147,7 +150,7 @@ function stato(iso) {
 }
 function allScadenze() {
   const rows = [];
-  for (const a of S.apparecchi) { if (a.dismesso) continue; for (const s of scadenze(a)) rows.push({ a, c: cliente(a.clienteId), ...s, st: stato(s.data) }); }
+  for (const a of S.apparecchi) { if (a.dismesso || cliente(a.clienteId)?.cessato) continue; for (const s of scadenze(a)) rows.push({ a, c: cliente(a.clienteId), ...s, st: stato(s.data) }); }
   rows.sort((x, y) => ((x.data || "0000") < (y.data || "0000") ? -1 : 1));
   return rows;
 }
@@ -187,6 +190,8 @@ const AIUTI = {
       ["Sede", "Dove sta l'apparecchio: serve al tecnico per arrivarci."],
       ["Telefono", "Per avvisare quando la verificazione sta per scadere."],
       ["Software gestionale", "Se il cliente usa un gestionale e quale: chi risponde «Sì» compare nella sezione Aggiornamenti."],
+      ["Cliente cessato", "L'attività ha chiuso o non è più vostro cliente: i suoi registratori escono per sempre dalle scadenze."],
+      ["Verificato", "Spuntalo dopo il controllo iniziale del cliente: aggiornamenti del registratore, verificazione periodica e, sui DTR, scheda di memoria (DGFE) annuale. Resta la data del controllo."],
     ],
   },
   aggiornamenti: {
@@ -296,7 +301,7 @@ function viewScadenze() {
     <button class="item" data-act="open-app" data-id="${r.a.id}">
       <span class="stripe ${r.st.cls}"></span>
       <span style="min-width:0"><span class="t">${esc(r.c?.ragione || "Cliente non indicato")}</span><br>
-      <span class="s"><span class="tag">${r.tipo}</span>${esc(r.a.modello || "")} · <span class="mono">${esc(r.a.matricola || "")}</span>${r.a.localita ? " · " + esc(r.a.localita) : ""}</span></span>
+      <span class="s"><span class="tag">${r.tipo}</span>${r.a.modello || r.a.matricola ? `${esc(r.a.modello || "")} · <span class="mono">${esc(r.a.matricola || "")}</span>` : "Registratore da completare"}${r.a.localita ? " · " + esc(r.a.localita) : ""}</span></span>
       <span class="when"><span class="d">${fmtD(r.data)}</span><span class="pill ${r.st.cls}">${r.st.txt}</span></span>
     </button>`).join("")}</div>`
     : `<div class="list"><div class="empty">${S.apparecchi.length ? "Nessuna scadenza con questi filtri." : `<b>Nessun apparecchio in archivio.</b><span>Aggiungi il primo registratore, anche leggendo il QR code dalla targhetta.</span><button class="btn primary" data-act="new-app">Aggiungi apparecchio</button>`}</div></div>`}`;
@@ -310,9 +315,9 @@ function viewApparecchi() {
   <input type="search" id="qApp" placeholder="Cerca matricola, modello, cliente, firmware…" value="${esc(UI.qa)}" data-bind="qa">
   ${list.length ? `<div class="list">${list.map((a) => {
     const sc = scadenze(a); const worst = sc.map((s) => stato(s.data)).sort((x, y) => (x.n ?? -1e9) - (y.n ?? -1e9))[0];
-    return `<button class="item" data-act="open-app" data-id="${a.id}"><span class="stripe ${a.dismesso ? "" : worst.cls}"></span>
+    return `<button class="item" data-act="open-app" data-id="${a.id}"><span class="stripe ${a.dismesso || cliente(a.clienteId)?.cessato ? "" : worst.cls}"></span>
       <span style="min-width:0"><span class="t">${esc(a.modello || "Modello non indicato")} · <span class="mono">${esc(a.matricola || "")}</span></span><br>
-      <span class="s">${esc(cliente(a.clienteId)?.ragione || "—")}${a.firmware ? ` · FW <span class="mono">${esc(a.firmware)}</span>` : ""}${a.dgfeAnnuale ? " · DGFE annuale" : ""}${a.dismesso ? " · dismesso" : ""}</span></span>
+      <span class="s">${esc(cliente(a.clienteId)?.ragione || "—")}${a.firmware ? ` · FW <span class="mono">${esc(a.firmware)}</span>` : ""}${a.dgfeAnnuale ? " · DGFE annuale" : ""}${a.dismesso ? " · dismesso" : ""}${cliente(a.clienteId)?.cessato ? " · cliente cessato" : ""}</span></span>
       <span class="when">${sc.map((s) => `<span class="faint"><span class="tag">${s.tipo}</span><span class="mono">${fmtD(s.data)}</span></span>`).join("")}</span></button>`;
   }).join("")}</div>` : `<div class="list"><div class="empty">Nessun apparecchio trovato.</div></div>`}`;
 }
@@ -323,13 +328,13 @@ function viewClienti() {
   <input type="search" id="qCli" placeholder="Cerca ragione sociale, P.IVA, telefono…" value="${esc(UI.qc)}" data-bind="qc">
   ${list.length ? `<div class="list">${list.map((c) => {
     const n = S.apparecchi.filter((a) => a.clienteId === c.id).length;
-    return `<button class="item" data-act="open-cli" data-id="${c.id}"><span class="stripe"></span><span style="min-width:0"><span class="t">${esc(c.ragione)}</span><br>
+    return `<button class="item" data-act="open-cli" data-id="${c.id}"><span class="stripe"></span><span style="min-width:0"><span class="t">${esc(c.ragione)}</span>${cliPills(c)}<br>
     <span class="s">P.IVA <span class="mono">${esc(c.piva || "—")}</span>${c.telefono ? " · " + esc(c.telefono) : ""}</span></span><span class="when"><span class="pill n">${n} RT</span></span></button>`;
   }).join("")}</div>` : `<div class="list"><div class="empty">Nessun cliente trovato.</div></div>`}`;
 }
 /* ---------- aggiornamenti software ---------- */
 const MOTIVI_AGG = { hardware: "Hardware troppo vecchio", non_paga: "Cliente non disposto a pagare gli aggiornamenti" };
-const usaGestionale = (c) => c.gestionale === "si";
+const usaGestionale = (c) => c.gestionale === "si" && !c.cessato; // i cessati escono anche da qui
 function statoAgg(c) {
   const a = c.aggSw || {};
   if (a.stato === "aggiornato") return { k: "aggiornato", cls: "ok", txt: "Aggiornato", det: `il ${fmtD(a.data)}${a.da ? " · " + a.da : ""}` };
@@ -443,7 +448,9 @@ function viewImpostazioni() {
   <div class="panel" id="tecniciPanel"><h2>Tecnici</h2><p class="faint">Caricamento…</p></div>
   <div class="panel" id="abbPanel"><h2>Abbonamento</h2><p class="faint">Caricamento…</p></div>
   <div class="panel"><h2>Esporta dati</h2><p class="faint" style="margin:0">Scarica tutto l'archivio della tua azienda (clienti, apparecchi, rapporti) per conservarlo o passarlo a un altro programma.</p>
-    <div class="row"><button class="btn" data-act="backup">Scarica archivio (JSON)</button><button class="btn" data-act="csv-scad">Scadenze (CSV)</button></div></div>`;
+    <div class="row"><button class="btn" data-act="backup">Scarica archivio (JSON)</button><button class="btn" data-act="csv-scad">Scadenze (CSV)</button></div></div>
+  <div class="panel"><h2>Importa storico</h2><p class="faint" style="margin:0">Carica il file di storico preparato dall'assistenza (clienti con le verifiche fatte prima di BluCheck). Prima vedi il riepilogo, poi confermi; prima di scrivere il programma fa un backup.</p>
+    <div class="row"><input type="file" id="impFile" accept=".json,application/json"><button class="btn" data-act="imp-anteprima">Vedi riepilogo</button></div><div id="impBox"></div></div>`;
   return h;
 }
 async function loadImpostazioni() {
@@ -718,13 +725,17 @@ function sheetAppEdit() {
 function sheetCli() {
   const c = cliente(UI.sheet.id); if (!c) return head("Cliente") + `<div class="sheet-body gut"><p>Cliente non trovato.</p></div>`;
   const apps = S.apparecchi.filter((a) => a.clienteId === c.id);
+  const sv = (c.storicoVerifiche || []).slice().sort().reverse();
   return head(esc(c.ragione), `<button class="btn sm" data-act="edit-cli" data-id="${c.id}">Modifica</button>`) + `<div class="sheet-body gut">
+    ${c.cessato ? `<div class="banner"><span><b>Cliente cessato:</b> i suoi registratori non compaiono più nelle scadenze.</span></div>` : ""}
+    ${c.verificato ? `<div class="banner ok"><span><b>Verificato${c.verificatoIl ? ` il ${fmtD(c.verificatoIl)}` : ""}:</b> controllo iniziale fatto (aggiornamenti, verificazione periodica, DGFE).</span></div>` : c.importato && !c.cessato ? `<div class="banner info"><span><b>Da verificare:</b> cliente preso dallo storico. Controlla aggiornamenti, verificazione periodica e DGFE (annuale sui DTR), poi spunta «Verificato».</span></div>` : ""}
     <div class="panel"><dl class="kv"><dt>P.IVA</dt><dd class="mono">${esc(c.piva || "—")}</dd><dt>Domicilio</dt><dd>${esc(c.domicilio || "—")}</dd>
       <dt>Telefono</dt><dd>${esc(c.telefono || "—")}</dd><dt>Email</dt><dd>${esc(c.email || "—")}</dd><dt>Referente</dt><dd>${esc(c.referente || "—")}</dd>
       <dt>Gestionale</dt><dd>${c.gestionale === "si" ? `Sì${c.software ? " · " + esc(c.software) : ""} · <a href="#" data-act="open-agg" data-id="${c.id}">aggiornamenti: ${statoAgg(c).txt.toLowerCase()}</a>` : c.gestionale === "no" ? "No" : "Non indicato"}</dd>
-      <dt>Note</dt><dd>${esc(c.note || "—")}</dd></dl></div>
+      <dt>Note</dt><dd style="white-space:pre-line">${esc(c.note || "—")}</dd></dl></div>
+    ${sv.length ? `<div class="panel"><h2>Verificazioni precedenti (storico)</h2><p class="faint" style="margin:0">${sv.map((d) => `<span class="mono">${fmtD(d)}</span>`).join(" · ")}</p></div>` : ""}
     <div class="panel"><div class="spread"><h2>Registratori</h2><button class="btn sm" data-act="new-app" data-cli="${c.id}">+ Apparecchio</button></div>
-      ${apps.length ? `<div class="list">${apps.map((a) => `<button class="item" data-act="open-app" data-id="${a.id}"><span class="stripe"></span><span><span class="t">${esc(a.modello)}</span><br><span class="s mono">${esc(a.matricola)}</span></span><span class="when">${scadenze(a).map((s) => `<span class="faint"><span class="tag">${s.tipo}</span>${fmtD(s.data)}</span>`).join("")}</span></button>`).join("")}</div>` : `<p class="faint">Nessun registratore.</p>`}</div>
+      ${apps.length ? `<div class="list">${apps.map((a) => `<button class="item" data-act="open-app" data-id="${a.id}"><span class="stripe"></span><span><span class="t">${esc(a.modello || "Registratore da completare")}</span><br><span class="s mono">${esc(a.matricola)}</span></span><span class="when">${scadenze(a).map((s) => `<span class="faint"><span class="tag">${s.tipo}</span>${fmtD(s.data)}</span>`).join("")}</span></button>`).join("")}</div>` : `<p class="faint">Nessun registratore.</p>`}</div>
     <div class="row"><button class="btn danger sm" data-act="del-cli" data-id="${c.id}">Elimina cliente</button></div>${confirmBox("questo cliente (i suoi apparecchi restano in archivio)", "del-cli", c.id)}
   </div>`;
 }
@@ -734,7 +745,9 @@ function sheetCliEdit() {
     <div class="grid2">${f("ragione", "Ragione sociale")}${f("piva", "Partita IVA")}${f("domicilio", "Domicilio / Residenza")}${f("telefono", "Telefono", "tel")}${f("email", "Email", "email")}${f("referente", "Referente (nome, qualifica)")}</div>
     <div class="grid2"><label class="field"><span>Usa un software gestionale?</span><select id="ce_gestionale" data-ce="gestionale">${[["", "— Non indicato —"], ["si", "Sì"], ["no", "No"]].map(([v, l]) => `<option value="${v}" ${(c.gestionale || "") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
       <label class="field" id="ceSwBox" ${c.gestionale === "si" ? "" : "hidden"}><span>Quale software gestionale</span><input type="text" id="ce_software" data-ce="software" value="${esc(c.software ?? "")}" placeholder="Nome del programma"></label></div>
-    <label class="field"><span>Note</span><textarea id="ce_note" data-ce="note">${esc(c.note || "")}</textarea></label></div>
+    <label class="field"><span>Note</span><textarea id="ce_note" data-ce="note">${esc(c.note || "")}</textarea></label>
+    <label class="check"><input type="checkbox" id="ce_cessato" data-ce="cessato" ${c.cessato ? "checked" : ""}> Cliente cessato (non va più in scadenza)</label>
+    <label class="check"><input type="checkbox" id="ce_verificato" data-ce="verificato" ${c.verificato ? "checked" : ""}> Verificato: controllo iniziale fatto (aggiornamenti, verificazione periodica, DGFE annuale sui DTR)</label></div>
     <div class="row"><button class="btn primary" data-act="save-cli">Salva cliente</button><button class="btn" data-act="close">Annulla</button></div></div>`;
 }
 function sheetVer() {
@@ -1176,6 +1189,7 @@ document.addEventListener("click", async (e) => {
     case "abb-edit-dati": case "abb-cancel-dati": case "abb-piano": case "abb-per": case "abb-metodo": case "abb-save-dati": case "abb-paga": await abbAzione(act, el); break;
     case "copia": try { await navigator.clipboard.writeText(el.dataset.v); toast("Copiato"); } catch { toast(el.dataset.v, 6000); } break;
     case "csv-scad": exportCsv(); break;
+    case "imp-anteprima": case "imp-conferma": await importaStorico(act === "imp-conferma"); break;
     case "backup": scaricaFile(`BluCheck_archivio_${todayISO()}.json`, new Blob([JSON.stringify({ app: "blucheck", esportato: new Date().toISOString(), azienda: S.azienda, clienti: S.clienti, apparecchi: S.apparecchi, verifiche: S.verifiche }, null, 1)], { type: "application/json" })); break;
   }
 });
@@ -1200,7 +1214,7 @@ document.addEventListener("input", (e) => {
     updateNextDates(); return;
   }
   if (t.dataset.aenc && UI.sheet?.draft) { (UI.sheet.draft.nuovoCliente ||= {})[t.dataset.aenc] = t.value; t.classList.remove("hl"); return; }
-  if (t.dataset.ce && UI.sheet?.draft) { UI.sheet.draft[t.dataset.ce] = t.value; if (t.dataset.ce === "gestionale") $("#ceSwBox").hidden = t.value !== "si"; return; }
+  if (t.dataset.ce && UI.sheet?.draft) { UI.sheet.draft[t.dataset.ce] = t.type === "checkbox" ? t.checked : t.value; if (t.dataset.ce === "gestionale") $("#ceSwBox").hidden = t.value !== "si"; return; }
   if (t.dataset.ag && UI.sheet?.draft) { UI.sheet.draft[t.dataset.ag] = t.value; return; }
 });
 document.addEventListener("change", (e) => { const t = e.target; if ((t.type === "checkbox" || t.tagName === "SELECT") && (t.dataset.f || t.dataset.fi || t.dataset.ae || t.dataset.ce)) t.dispatchEvent(new Event("input", { bubbles: true })); });
@@ -1237,11 +1251,28 @@ async function saveApp() {
     else { render(); openSheet({ kind: "app", id }); }
   } catch (err) { apiError(err); }
 }
+async function importaStorico(conferma) {
+  const box = $("#impBox"); const file = $("#impFile")?.files?.[0];
+  if (!file) return toast("Scegli prima il file di storico.");
+  if (conferma && !guardWrite()) return;
+  try {
+    const body = JSON.parse(await file.text());
+    const r = await api("POST", "/api/importa-storico", { ...body, conferma: !!conferma });
+    if (r.anteprima) {
+      box.innerHTML = `<div class="banner info" style="flex-direction:column;align-items:stretch"><span>Da importare: <b>${r.nuovi}</b> clienti (${r.cessati} cessati, ${r.verificati} verificati${r.senza_data ? `, ${r.senza_data} senza data` : ""}). Già presenti e saltati: <b>${r.saltati.length}</b>${r.saltati.length ? ` (${esc(r.saltati.slice(0, 10).join(", "))}${r.saltati.length > 10 ? "…" : ""})` : ""}.</span>
+        ${r.nuovi ? `<div class="row"><button class="btn primary" data-act="imp-conferma">Importa ${r.nuovi} clienti</button></div>` : ""}</div>`;
+    } else {
+      box.innerHTML = `<div class="banner ok"><span>Importati <b>${r.importati}</b> clienti. Backup fatto prima dell'import: <span class="mono">${esc(r.backup || "")}</span>.</span></div>`;
+      toast("Storico importato"); await start();
+    }
+  } catch (err) { if (err instanceof SyntaxError) toast("Il file non è un JSON valido."); else apiError(err); }
+}
 async function saveCli() {
   if (!guardWrite()) return;
   const s = UI.sheet, d = s.draft; if (!d.ragione?.trim()) return toast("Inserisci la ragione sociale.");
   const id = s.id || uid();
-  try { await put("clienti", id, { ...d, id, ragione: d.ragione.trim() }); toast("Cliente salvato"); render(); openSheet({ kind: "cli", id }); } catch (err) { apiError(err); }
+  const ver = d.verificato ? { verificatoIl: d.verificatoIl || todayISO() } : { verificatoIl: "" };
+  try { await put("clienti", id, { ...d, ...ver, id, ragione: d.ragione.trim() }); toast("Cliente salvato"); render(); openSheet({ kind: "cli", id }); } catch (err) { apiError(err); }
 }
 async function copyReminder(id) {
   const a = apparecchio(id), c = cliente(a?.clienteId); if (!a) return; const L = lab();
