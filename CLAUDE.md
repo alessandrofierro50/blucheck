@@ -46,7 +46,10 @@ Questo software fa parte del progetto BluCode Informatica. La memoria condivisa 
       (normalizzata) si saltano. Ogni cliente riceve un apparecchio senza modello/matricola («Registratore da completare») con `ultimaVerifica`.
       Anagrafica nel file (2026-11-18, dall'export clienti di BluGest): `piva, cf, sdi, pec, email, telefono, domicilio` (campi anche in
       «Modifica cliente») e `localita` = comune dell'apparecchio. Clienti già presenti: si riempiono solo i campi vuoti (`completati`; il domicilio
-      messo dal primo import = comune dell'apparecchio importato si sostituisce), segni, storico e date non si toccano.
+      messo dal primo import = comune dell'apparecchio importato si sostituisce), i campi diversi (P.IVA, CF, SDI, PEC, email, telefono, domicilio, cessato;
+      confronto senza maiuscole/spazi/punteggiatura, telefoni sulle sole cifre) sono `discordanze` nell'anteprima e si scelgono uno per uno
+      (`scelte` {"<id>:<campo>": "nuovo"|"attuale"}, senza scelta resta quello di BluCheck); le date dello storico si uniscono e l'ultima
+      verifica dell'apparecchio importato avanza se il file ne ha una più recente; «verificato» non si tocca mai.
       I file con i dati dei clienti NON vanno nel repository (è pubblico). Prova: `test/storico.mjs`.
 - [x] Aggiornamenti software (2026-11-18): in anagrafica cliente «Usa un software gestionale?» (`gestionale`: si/no/'') e «Quale software»
       (`software`); sezione «Aggiornamenti» (`viewAggiornamenti`, scheda `sheetAgg` in `public/js/app.js`) con i clienti che hanno `gestionale = si`

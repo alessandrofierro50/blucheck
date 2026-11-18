@@ -1191,6 +1191,7 @@ document.addEventListener("click", async (e) => {
     case "copia": try { await navigator.clipboard.writeText(el.dataset.v); toast("Copiato"); } catch { toast(el.dataset.v, 6000); } break;
     case "csv-scad": exportCsv(); break;
     case "imp-anteprima": case "imp-conferma": await importaStorico(act === "imp-conferma"); break;
+    case "imp-tutti-bc": case "imp-tutti-file": document.querySelectorAll(`#impBox input[data-disc][value="${act === "imp-tutti-file" ? "nuovo" : "attuale"}"]`).forEach((x) => { x.checked = true; }); break;
     case "backup": scaricaFile(`BluCheck_archivio_${todayISO()}.json`, new Blob([JSON.stringify({ app: "blucheck", esportato: new Date().toISOString(), azienda: S.azienda, clienti: S.clienti, apparecchi: S.apparecchi, verifiche: S.verifiche }, null, 1)], { type: "application/json" })); break;
   }
 });
@@ -1252,18 +1253,29 @@ async function saveApp() {
     else { render(); openSheet({ kind: "app", id }); }
   } catch (err) { apiError(err); }
 }
+const CAMPI_IMPORT = { piva: "P.IVA", cf: "Codice fiscale", sdi: "Codice SDI", pec: "PEC", email: "Email", telefono: "Telefono", domicilio: "Domicilio", cessato: "Cessato" };
 async function importaStorico(conferma) {
   const box = $("#impBox"); const file = $("#impFile")?.files?.[0];
   if (!file) return toast("Scegli prima il file di storico.");
   if (conferma && !guardWrite()) return;
   try {
     const body = JSON.parse(await file.text());
-    const r = await api("POST", "/api/importa-storico", { ...body, conferma: !!conferma });
+    const scelte = {};
+    box.querySelectorAll("input[data-disc]:checked").forEach((x) => { scelte[x.dataset.disc] = x.value; });
+    const r = await api("POST", "/api/importa-storico", { ...body, conferma: !!conferma, scelte });
     if (r.anteprima) {
-      box.innerHTML = `<div class="banner info" style="flex-direction:column;align-items:stretch"><span>Da importare: <b>${r.nuovi}</b> clienti (${r.cessati} cessati, ${r.verificati} verificati${r.senza_data ? `, ${r.senza_data} senza data` : ""}).${r.completati ? ` Già presenti da completare con P.IVA, indirizzo e contatti: <b>${r.completati}</b>.` : ""} Già presenti e saltati: <b>${r.saltati.length}</b>${r.saltati.length ? ` (${esc(r.saltati.slice(0, 10).join(", "))}${r.saltati.length > 10 ? "…" : ""})` : ""}.</span>
-        ${r.nuovi || r.completati ? `<div class="row"><button class="btn primary" data-act="imp-conferma">${r.nuovi ? `Importa ${r.nuovi} clienti` : "Completa i dati"}${r.nuovi && r.completati ? ` e completa ${r.completati}` : ""}</button></div>` : ""}</div>`;
+      const disc = r.discordanze || [];
+      const righe = disc.map((d) => `<tr><td>${esc(d.ragione)}</td><td>${esc(CAMPI_IMPORT[d.campo] || d.campo)}</td>
+        <td><label><input type="radio" name="d-${esc(d.chiave)}" data-disc="${esc(d.chiave)}" value="attuale" checked> ${esc(d.attuale)}</label></td>
+        <td><label><input type="radio" name="d-${esc(d.chiave)}" data-disc="${esc(d.chiave)}" value="nuovo"> ${esc(d.nuovo)}</label></td></tr>`).join("");
+      box.innerHTML = `<div class="banner info" style="flex-direction:column;align-items:stretch"><span>Clienti nuovi da inserire: <b>${r.nuovi}</b>${r.nuovi ? ` (${r.cessati} cessati, ${r.verificati} verificati${r.senza_data ? `, ${r.senza_data} senza data` : ""})` : ""}.
+        Già presenti da aggiornare: <b>${r.aggiornati}</b>${r.date_avanzate ? ` (${r.date_avanzate} con una verifica più recente)` : ""}. Già presenti e uguali: <b>${r.saltati.length}</b>.
+        ${disc.length ? `<br>Dati diversi tra BluCheck e il file: <b>${disc.length}</b>. Scegli quale tenere (se non scegli resta quello di BluCheck). I campi vuoti in BluCheck si riempiono da soli.` : ""}</span>
+        ${disc.length ? `<div class="row"><button class="btn" data-act="imp-tutti-bc">Tieni tutti quelli di BluCheck</button><button class="btn" data-act="imp-tutti-file">Prendi tutti quelli del file</button></div>
+        <div style="overflow:auto;max-height:50vh"><table class="t"><thead><tr><th>Cliente</th><th>Dato</th><th>In BluCheck</th><th>Nel file</th></tr></thead><tbody>${righe}</tbody></table></div>` : ""}
+        ${r.nuovi || r.aggiornati ? `<div class="row"><button class="btn primary" data-act="imp-conferma">Importa e aggiorna</button></div>` : ""}</div>`;
     } else {
-      box.innerHTML = `<div class="banner ok"><span>Importati <b>${r.importati}</b> clienti${r.completati ? `, completati ${r.completati}` : ""}. Backup fatto prima dell'import: <span class="mono">${esc(r.backup || "")}</span>.</span></div>`;
+      box.innerHTML = `<div class="banner ok"><span>Inseriti <b>${r.importati}</b> clienti nuovi, aggiornati <b>${r.aggiornati}</b>${r.cambiati ? ` (${r.cambiati} dati presi dal file)` : ""}. ${r.backup ? `Backup fatto prima dell'import: <span class="mono">${esc(r.backup)}</span>.` : ""}</span></div>`;
       toast("Storico importato"); await start();
     }
   } catch (err) { if (err instanceof SyntaxError) toast("Il file non è un JSON valido."); else apiError(err); }
