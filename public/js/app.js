@@ -132,8 +132,9 @@ function guardWrite() {
 /* ============================== derivati ============================== */
 const cliente = (id) => S.clienti.find((c) => c.id === id);
 const apparecchio = (id) => S.apparecchi.find((a) => a.id === id);
-// Segni sul cliente: «cessato» lo toglie per sempre dalle scadenze, «verificato» dice che la verifica è stata fatta prima di usare BluCheck (storico).
-const cliPills = (c) => (c?.cessato ? ` <span class="pill bad">CESSATO</span>` : "") + (c?.verificato ? ` <span class="pill n">VERIFICATO</span>` : "");
+// Segni sul cliente: «cessato» lo toglie per sempre dalle scadenze; «verificato» è il controllo iniziale fatto dal laboratorio
+// (aggiornamenti, verificazione periodica, DGFE annuale sui DTR). I clienti importati dallo storico partono «da verificare».
+const cliPills = (c) => (c?.cessato ? ` <span class="pill bad">CESSATO</span>` : c?.verificato ? ` <span class="pill ok">VERIFICATO</span>` : c?.importato ? ` <span class="pill warn">DA VERIFICARE</span>` : "");
 function scadenze(a) {
   const out = [{ tipo: "VP", label: "Verificazione periodica", ultima: a.ultimaVerifica, data: a.ultimaVerifica ? addYears(a.ultimaVerifica, 2) : "" }];
   if (a.dgfeAnnuale) out.push({ tipo: "DGFE", label: "DGFE (annuale)", ultima: a.ultimoDgfe, data: a.ultimoDgfe ? addYears(a.ultimoDgfe, 1) : "" });
@@ -189,7 +190,7 @@ const AIUTI = {
       ["Sede", "Dove sta l'apparecchio: serve al tecnico per arrivarci."],
       ["Telefono", "Per avvisare quando la verificazione sta per scadere."],
       ["Cliente cessato", "L'attività ha chiuso o non è più vostro cliente: i suoi registratori escono per sempre dalle scadenze."],
-      ["Verificato", "L'ultima verificazione è stata fatta prima di usare BluCheck: la data viene dallo storico, non da un rapporto del programma."],
+      ["Verificato", "Spuntalo dopo il controllo iniziale del cliente: aggiornamenti del registratore, verificazione periodica e, sui DTR, scheda di memoria (DGFE) annuale. Resta la data del controllo."],
     ],
   },
   verifiche: {
@@ -629,7 +630,7 @@ function sheetCli() {
   const sv = (c.storicoVerifiche || []).slice().sort().reverse();
   return head(esc(c.ragione), `<button class="btn sm" data-act="edit-cli" data-id="${c.id}">Modifica</button>`) + `<div class="sheet-body gut">
     ${c.cessato ? `<div class="banner"><span><b>Cliente cessato:</b> i suoi registratori non compaiono più nelle scadenze.</span></div>` : ""}
-    ${c.verificato ? `<div class="banner info"><span><b>Verificato:</b> l'ultima verificazione è stata fatta prima di usare BluCheck (dati presi dallo storico).</span></div>` : ""}
+    ${c.verificato ? `<div class="banner ok"><span><b>Verificato${c.verificatoIl ? ` il ${fmtD(c.verificatoIl)}` : ""}:</b> controllo iniziale fatto (aggiornamenti, verificazione periodica, DGFE).</span></div>` : c.importato && !c.cessato ? `<div class="banner info"><span><b>Da verificare:</b> cliente preso dallo storico. Controlla aggiornamenti, verificazione periodica e DGFE (annuale sui DTR), poi spunta «Verificato».</span></div>` : ""}
     <div class="panel"><dl class="kv"><dt>P.IVA</dt><dd class="mono">${esc(c.piva || "—")}</dd><dt>Domicilio</dt><dd>${esc(c.domicilio || "—")}</dd>
       <dt>Telefono</dt><dd>${esc(c.telefono || "—")}</dd><dt>Email</dt><dd>${esc(c.email || "—")}</dd><dt>Referente</dt><dd>${esc(c.referente || "—")}</dd><dt>Note</dt><dd style="white-space:pre-line">${esc(c.note || "—")}</dd></dl></div>
     ${sv.length ? `<div class="panel"><h2>Verificazioni precedenti (storico)</h2><p class="faint" style="margin:0">${sv.map((d) => `<span class="mono">${fmtD(d)}</span>`).join(" · ")}</p></div>` : ""}
@@ -644,7 +645,7 @@ function sheetCliEdit() {
     <div class="grid2">${f("ragione", "Ragione sociale")}${f("piva", "Partita IVA")}${f("domicilio", "Domicilio / Residenza")}${f("telefono", "Telefono", "tel")}${f("email", "Email", "email")}${f("referente", "Referente (nome, qualifica)")}</div>
     <label class="field"><span>Note</span><textarea id="ce_note" data-ce="note">${esc(c.note || "")}</textarea></label>
     <label class="check"><input type="checkbox" id="ce_cessato" data-ce="cessato" ${c.cessato ? "checked" : ""}> Cliente cessato (non va più in scadenza)</label>
-    <label class="check"><input type="checkbox" id="ce_verificato" data-ce="verificato" ${c.verificato ? "checked" : ""}> Verificato: l'ultima verifica è stata fatta prima di usare BluCheck</label></div>
+    <label class="check"><input type="checkbox" id="ce_verificato" data-ce="verificato" ${c.verificato ? "checked" : ""}> Verificato: controllo iniziale fatto (aggiornamenti, verificazione periodica, DGFE annuale sui DTR)</label></div>
     <div class="row"><button class="btn primary" data-act="save-cli">Salva cliente</button><button class="btn" data-act="close">Annulla</button></div></div>`;
 }
 function sheetVer() {
@@ -1159,7 +1160,8 @@ async function saveCli() {
   if (!guardWrite()) return;
   const s = UI.sheet, d = s.draft; if (!d.ragione?.trim()) return toast("Inserisci la ragione sociale.");
   const id = s.id || uid();
-  try { await put("clienti", id, { ...d, id, ragione: d.ragione.trim() }); toast("Cliente salvato"); render(); openSheet({ kind: "cli", id }); } catch (err) { apiError(err); }
+  const ver = d.verificato ? { verificatoIl: d.verificatoIl || todayISO() } : { verificatoIl: "" };
+  try { await put("clienti", id, { ...d, ...ver, id, ragione: d.ragione.trim() }); toast("Cliente salvato"); render(); openSheet({ kind: "cli", id }); } catch (err) { apiError(err); }
 }
 async function copyReminder(id) {
   const a = apparecchio(id), c = cliente(a?.clienteId); if (!a) return; const L = lab();

@@ -23,7 +23,7 @@ await az("POST", "/api/me/password", { attuale: pwd, nuova: "Nuovapass2026" });
 await az("PUT", "/api/dati/clienti/c0", { data: { ragione: "Già Presente Snc" } });
 
 const file = { formato: "blucheck-storico-1", fonte: "prova", clienti: [
-  { ragione: "Bar Uno", domicilio: "Lecce", ultimaVerifica: "2024-11-20", storicoVerifiche: ["2022-11-02", "2024-11-20"], verificato: true },
+  { ragione: "Bar Uno", domicilio: "Lecce", ultimaVerifica: "2024-11-20", storicoVerifiche: ["2022-11-02", "2024-11-20"] },
   { ragione: "Negozio Due", ultimaVerifica: "2019-03-01", cessato: true, verificato: true, segnalazioni: "riga rossa" },
   { ragione: "GIA' PRESENTE SNC", ultimaVerifica: "2024-01-01" },
   { ragione: "bar uno", ultimaVerifica: "2020-01-01" },
@@ -36,7 +36,7 @@ r = await az("POST", "/api/importa-storico", { ...file, conferma: true });
 ok(r.s === 200 && r.j.importati === 2 && /^blucheck-prima-import-.*\.db$/.test(r.j.backup), "conferma: 2 importati, backup " + r.j.backup);
 r = await az("GET", "/api/bootstrap");
 const uno = r.j.clienti.find((c) => c.ragione === "BAR UNO"), due = r.j.clienti.find((c) => c.ragione === "NEGOZIO DUE");
-ok(uno && uno.verificato && !uno.cessato && uno.storicoVerifiche.length === 2 && uno.domicilio === "LECCE", "cliente importato con storico e segni");
+ok(uno && !uno.verificato && !uno.cessato && uno.storicoVerifiche.length === 2 && uno.domicilio === "LECCE", "cliente importato con storico e segni");
 ok(due && due.cessato, "cliente cessato importato");
 const app1 = r.j.apparecchi.find((a) => a.clienteId === uno.id);
 ok(app1 && app1.ultimaVerifica === "2024-11-20" && app1.importato && !app1.matricola, "apparecchio da completare con l'ultima verifica");

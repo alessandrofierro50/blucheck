@@ -869,7 +869,7 @@ app.post("/api/importa-storico", auth, azOnly, solo("admin"), wrap(async (req, r
     for (const c of nuovi) {
       const cid = uid(), aid = uid();
       salvaDato(req.azienda.id, "clienti", cid, { id: cid, ragione: c.ragione, piva: "", domicilio: c.domicilio, telefono: "", email: "", referente: "", note: [c.note, c.segnalazioni].filter(Boolean).join("\n"),
-        cessato: c.cessato, verificato: c.verificato, storicoVerifiche: c.storico, importato: { il: oggi(), fonte } }, req.user);
+        cessato: c.cessato, verificato: c.verificato, verificatoIl: c.verificato ? oggi() : "", storicoVerifiche: c.storico, importato: { il: oggi(), fonte } }, req.user);
       salvaDato(req.azienda.id, "apparecchi", aid, { id: aid, clienteId: cid, modello: "", matricola: "", indirizzo: "", localita: c.domicilio, firmware: "", firmwareData: "",
         ultimaVerifica: c.ultima, dgfeAnnuale: false, ultimoDgfe: "", dismesso: false, note: "IMPORTATO DALLO STORICO: MODELLO E MATRICOLA DA COMPLETARE ALLA PROSSIMA VERIFICA.", importato: true }, req.user);
     }
