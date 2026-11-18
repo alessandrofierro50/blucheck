@@ -27,7 +27,9 @@ r = await az("POST", "/api/importa-storico", { formato: "blucheck-storico-1", co
 ok(r.j.importati === 1, "storico: 1 cliente con registratore da completare");
 await az("PUT", "/api/dati/clienti/cE", { data: { ragione: "ESISTENTE SAS", piva: "06666666666" } });
 await az("PUT", "/api/dati/apparecchi/aE", { data: { clienteId: "cE", matricola: "80EPS000005", modello: "EPSON FP-81", firmware: "9.0", ultimaVerifica: "2024-02-01" } });
-await az("PUT", "/api/dati/clienti/cT", { data: { ragione: "NEGOZIO TRE", piva: "" } });
+await az("PUT", "/api/dati/clienti/cT", { data: { ragione: "NEGOZIO TRE", piva: "", gestionale: "si", abbSw: { "2026": { canoni: 1, importo: 150, documenti: [] } } } });
+// abbonamento software: Bar Uno ha 1 canone ma con Q1 e Q2 avrà 2 registratori (da scegliere); Negozio Tre 1 canone e 1 registratore (si collega)
+{ const b = (await az("GET", "/api/bootstrap")).j.clienti.find((c) => c.ragione === "BAR UNO SRL"); await az("PUT", `/api/dati/clienti/${b.id}`, { data: { ...b, abbSw: { "2025": { canoni: 1, importo: 150, documenti: [] } } } }); }
 
 const U = (id) => `https://ivaservizi.agenziaentrate.gov.it/ser/mobile/fiscalizzazione/v1/stato/${id}?seed=1`;
 const urls = ["Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8"].map(U).concat([U("Q1"), "https://example.com/altro"]);
@@ -46,6 +48,7 @@ ok(E(U("Q5")).esito === "presente" && E(U("Q5")).cambi.includes("firmware") && E
 ok(E(U("Q6")).esito === "errore", "Q6: pagina senza dispositivo = non leggibile");
 ok(E(U("Q7")).esito === "doppio", "Q7: stessa matricola di Q1 = doppione");
 ok(E(U("Q8")).esito === "nuovo" && E(U("Q8")).cliente === "NEGOZIO TRE" && E(U("Q8")).avvisi.some((a) => /ragione sociale/.test(a)), "Q8: cliente riconosciuto dalla ragione sociale");
+ok(E(U("Q8")).avvisi.some((a) => /si collega al canone/.test(a)) && E(U("Q1")).avvisi.some((a) => /scegli nella scheda/.test(a)), "abbonamento: Q8 si collega, Bar Uno da scegliere");
 ok(E("https://example.com/altro").esito === "errore", "indirizzo che non è dell'Agenzia = non leggibile");
 ok(r.j.righe.filter((x) => x.url === U("Q1")).length === 1, "stesso indirizzo due volte = una riga");
 r = await az("GET", "/api/bootstrap"); ok(r.j.apparecchi.length === 2 && r.j.clienti.length === 3, "il riepilogo non scrive nulla");
@@ -62,6 +65,7 @@ ok(ap("80EPS000005").firmware === "9.9" && ap("80EPS000005").ultimaVerifica === 
 const due = r.j.clienti.find((c) => c.ragione === "PIZZERIA DUE SNC");
 ok(due?.piva === "05555555555" && ap("72CUS000003")?.clienteId === due.id && !ap("72CUS000004"), "cliente nuovo creato, Q4 escluso non salvato");
 ok(r.j.clienti.find((c) => c.id === "cT").piva === "07777777777" && ap("55OLI000008")?.clienteId === "cT", "P.IVA aggiunta al cliente riconosciuto per nome");
+ok(ap("55OLI000008").abbSw === true && ap("99MEX000001").abbSw === undefined && r.j.apparecchi.filter((a) => a.clienteId === uno.id).every((a) => a.abbSw === undefined), "matricola collegata all'abbonamento solo dove i canoni bastano");
 
 r = await az("POST", "/api/importa-qr", { urls });
 ok(r.j.nuovi === 1 && r.j.invariati === 5 && r.j.clienti_nuovi === 0 && r.j.righe.find((x) => x.url === U("Q4")).cliente === "PIZZERIA DUE SNC", "secondo import: solo Q4 nuovo (sul cliente creato prima), gli altri invariati " + JSON.stringify({ ...r.j, righe: undefined }));

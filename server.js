@@ -936,6 +936,25 @@ function proponiCliente(nome, clienti) {
   }
   return best && !pari && bestN >= 2 && bestN * 2 >= Math.min(a.size, parole(best.ragione).size) ? best.id : "";
 }
+/* Abbonamento sul singolo registratore: apparecchio.abbSw = true (col software, coperto dal canone), false (solo cassa, nessun software), assente = da decidere.
+   I canoni del cliente sono quelli dell'anno più recente pagato. Si collegano da soli i registratori non decisi solo se i canoni bastano
+   per tutti (1 registratore e 1 canone, 2 e 2…); altrimenti si sceglie nella scheda «Aggiornamenti» del cliente. */
+const canoniAbb = (c) => { const a = Object.keys(c?.abbSw || {}).filter((k) => c.abbSw[k]?.canoni > 0).sort(); return a.length ? c.abbSw[a[a.length - 1]].canoni : 0; };
+function rtDaCollegare(c, apps) {
+  const n = canoniAbb(c); if (!n) return [];
+  const attivi = apps.filter((a) => a.clienteId === c.id && !a.dismesso);
+  const si = attivi.filter((a) => a.abbSw === true).length, nd = attivi.filter((a) => a.abbSw !== true && a.abbSw !== false);
+  return nd.length && si + nd.length <= n ? nd : [];
+}
+function collegaRtAbbonamento(aziendaId, clienteIds, user) {
+  let n = 0;
+  for (const cid of new Set(clienteIds)) {
+    const r = db.prepare("SELECT data FROM dati WHERE azienda_id=? AND coll='clienti' AND id=? AND eliminato=0").get(aziendaId, cid); if (!r) continue;
+    const apps = db.prepare("SELECT data FROM dati WHERE azienda_id=? AND coll='apparecchi' AND eliminato=0").all(aziendaId).map((x) => JSON.parse(x.data)).filter((a) => a.clienteId === cid);
+    for (const a of rtDaCollegare(JSON.parse(r.data), apps)) { salvaDato(aziendaId, "apparecchi", a.id, { ...a, abbSw: true }, user); n++; }
+  }
+  return n;
+}
 function leggiAbbonamenti(body, aziendaId) {
   if (body?.formato !== "blucheck-abbonamenti-1" || !Array.isArray(body.anni)) fail(400, "Dati non riconosciuti: carica gli export CSV dello storico articolo di BluGest.");
   if (body.anni.length > 20) fail(413, "Troppi anni in una volta (massimo 20).");
@@ -1048,6 +1067,7 @@ app.post("/api/importa-abbonamenti", auth, azOnly, solo("admin"), wrap(async (re
       if (c.segnaGestionale) dati.gestionale = "si";
       salvaDato(req.azienda.id, "clienti", gia.id, dati, req.user);
     }
+    collegaRtAbbonamento(req.azienda.id, p.cambi.filter((c) => !c.nuovo).map((c) => c.clienteId), req.user);
   })();
   registra(req.user.email, "import_abbonamenti", `${req.azienda.ragione}: anni ${p.anni.join(", ")}; ${riepilogo.nuoviClienti} clienti nuovi, ${p.cambi.length} clienti aggiornati, ${riepilogo.abbonamentiNuovi} abbonamenti nuovi, ${riepilogo.abbonamentiTolti} tolti; backup ${path.basename(backup)}`, req.ip);
   res.json({ aggiornati: p.cambi.length, backup: path.basename(backup), ...riepilogo });
@@ -1150,6 +1170,18 @@ async function pianoImportQr(aziendaId, urls) {
     const nc = nuoviClienti.get(kc);
     righe.push({ ...r, esito: "nuovo", cliente: nc.ragione, clienteNuovo: nc, _campi: campiDaAe(d, l.url, null) });
   }
+  // abbonamento software: le matricole lette si collegano al canone del cliente se bastano i canoni, altrimenti si sceglie nella scheda
+  const perCli = new Map();
+  for (const r of righe) if ((r.esito === "nuovo" || r.esito === "completa") && r.clienteId) { if (!perCli.has(r.clienteId)) perCli.set(r.clienteId, []); perCli.get(r.clienteId).push(r); }
+  for (const [cid, rs] of perCli) {
+    const cli = cliById.get(cid), n = canoniAbb(cli); if (!n) continue;
+    const attivi = apparecchi.filter((a) => a.clienteId === cid && !a.dismesso);
+    const si = attivi.filter((a) => a.abbSw === true).length;
+    const nd = attivi.filter((a) => a.abbSw !== true && a.abbSw !== false).length + rs.filter((r) => r.esito === "nuovo").length;
+    const msg = si + nd <= n ? "abbonamento software: la matricola si collega al canone del cliente"
+      : `abbonamento software: ${n} ${n === 1 ? "canone" : "canoni"} e ${si + nd} registratori, scegli nella scheda quale ha il software e quale è solo cassa`;
+    for (const r of rs) r.avvisi.push(msg);
+  }
   return righe;
 }
 const pubRiga = ({ _campi, clienteNuovo, ...r }) => ({ ...r, clienteNuovo: !!clienteNuovo });
@@ -1191,6 +1223,7 @@ app.post("/api/importa-qr", auth, azOnly, wrap(async (req, res) => {
         fatti.nuovi++;
       }
     }
+    fatti.abbonamenti = collegaRtAbbonamento(req.azienda.id, scrivi.filter((r) => r.clienteId && r.esito !== "presente").map((r) => r.clienteId), req.user);
   })();
   registra(req.user.email, "import_qr", `${req.azienda.ragione}: ${fatti.nuovi} apparecchi nuovi (${fatti.clienti} clienti nuovi), ${fatti.completati} completati, ${fatti.aggiornati} aggiornati, ${riepilogo.errori} non letti; backup ${path.basename(backup)}`, req.ip);
   res.json({ salvati: scrivi.length, fatti, backup: path.basename(backup), ...riepilogo, righe: righe.map(pubRiga) });
