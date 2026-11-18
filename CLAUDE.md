@@ -17,7 +17,11 @@ Questo software fa parte del progetto BluCode Informatica. La memoria condivisa 
   Testi e finestra in `public/js/app.js` (`AIUTI`, `aiutoDialog`), con il pannello laterale già usato dal programma.
 
 ## Note tecniche
-- Node.js 20, Express, SQLite (better-sqlite3), pm2. Una sola istanza (SQLite).
+- Node.js 20, Express, SQLite (better-sqlite3), pm2. Una sola istanza (SQLite). VPS server 1 (217.76.158.224), `/opt/blucheck`.
+- Aggiornamento automatico (2026-11-18): CI `.github/workflows/ci.yml` (`bash test/tutte.sh`: sintassi, e2e/acquisto/storico/importa-qr
+  su database nuovi, stampa e foto con Playwright) e, se verde su main, «Aggiorna server» via SSH con chiave limitata
+  (`deploy/aggiornamento-automatico.sh` → `deploy/update.sh`: backup `data/backup/prima-aggiornamento-*.db`, `git pull --ff-only`,
+  `npm ci` solo se cambiano le dipendenze, `pm2 restart blucheck`, controllo sulla porta). Collegato al connettore vocale. Vedi `deploy/AGGIORNAMENTO-AUTOMATICO.md`.
 - `server.js` API, abbonamenti, pagamenti, acquisto dal sito, Console · `contratto.js` contratto PDF dell'acquisto · `abbonamento.js` fasi e modelli email · `pagamenti.js` fatturazione, Stripe/PayPal, XML, proforma · `test/` prove (e2e con gestori simulati) · `ae-qr.js` lettura della pagina AdE del QR · `public/js/app.js` app tecnici · `public/js/admin.js` superuser · `public/js/pdf.js` moduli PDF.
 - Le password e le chiavi stanno solo nel `.env` del server, mai nel repository.
 - Cache del browser: js e css restano in cache 1 ora, le pagine HTML no. A ogni modifica di `public/js` o `public/css` cambiare `?v=AAAAMMGG` (più modifiche nello stesso giorno: aggiungere una lettera, es. `20261118b`)

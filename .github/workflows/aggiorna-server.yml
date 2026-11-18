@@ -1,0 +1,55 @@
+# Aggiornamento automatico del server: a ogni modifica su main GitHub si collega alla VPS
+# e lancia deploy/aggiornamento-automatico.sh (codice nuovo e riavvio).
+# Preparazione, una volta sola: vedi deploy/AGGIORNAMENTO-AUTOMATICO.md
+name: Aggiorna server
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+# Un aggiornamento alla volta: se ne arriva un altro, aspetta che finisca il primo (sulla VPS aspetta anche gli altri programmi)
+concurrency:
+  group: aggiorna-server
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  aggiorna:
+    name: Aggiorna la VPS
+    # Solo se i controlli automatici (CI) di un push su main sono verdi
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Collegati alla VPS e aggiorna
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          PORTA: ${{ secrets.DEPLOY_PORT }}
+          UTENTE: ${{ secrets.DEPLOY_USER }}
+          CHIAVE: ${{ secrets.DEPLOY_SSH_KEY }}
+          IMPRONTA: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$HOST" ] || [ -z "$CHIAVE" ] || [ -z "$IMPRONTA" ]; then
+            echo "::warning::Aggiornamento automatico non ancora attivo: mancano i Secrets DEPLOY_HOST, DEPLOY_SSH_KEY o DEPLOY_KNOWN_HOSTS (vedi deploy/AGGIORNAMENTO-AUTOMATICO.md)."
+            exit 0
+          fi
+          PORTA=${PORTA:-22}
+          UTENTE=${UTENTE:-root}
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$CHIAVE" | tr -d '\r' > ~/.ssh/deploy
+          chmod 600 ~/.ssh/deploy
+          if [ "$PORTA" = 22 ]; then NOME="$HOST"; else NOME="[$HOST]:$PORTA"; fi
+          # DEPLOY_KNOWN_HOSTS può essere solo "ssh-ed25519 AAAA..." oppure una riga completa di known_hosts
+          printf '%s\n' "$IMPRONTA" | tr -d '\r' | while IFS= read -r r; do
+            case "$r" in "") ;; ssh-*|ecdsa-*) echo "$NOME $r" ;; *) echo "$r" ;; esac
+          done > ~/.ssh/known_hosts
+          # La chiave sulla VPS può lanciare solo l'aggiornamento: il comando qui sotto viene ignorato
+          ssh -i ~/.ssh/deploy -p "$PORTA" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes \
+            -o ConnectTimeout=20 -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
+            "$UTENTE@$HOST" aggiorna
