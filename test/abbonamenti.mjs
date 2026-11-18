@@ -24,6 +24,9 @@ await az("POST", "/api/me/password", { attuale: pwd, nuova: "Nuovapass2026" });
 await az("PUT", "/api/dati/clienti/c1", { data: { ragione: "RISTO SRLS" } });
 await az("PUT", "/api/dati/clienti/c2", { data: { ragione: "Bar Due", gestionale: "si", abbSw: { "2024": { canoni: 1, importo: 150, documenti: [] } } } });
 await az("PUT", "/api/dati/clienti/c3", { data: { ragione: "RUPE DELLE STELLE DI NAPOLITANO GIANNI" } });
+await az("PUT", "/api/dati/apparecchi/a1", { data: { clienteId: "c1", matricola: "99MEX000001" } });
+await az("PUT", "/api/dati/apparecchi/a3", { data: { clienteId: "c3", matricola: "99MEX000003" } });
+await az("PUT", "/api/dati/apparecchi/a3b", { data: { clienteId: "c3", matricola: "99MEX000033" } });
 
 const riga = (soggetto, documento, data, quantita, importo) => ({ soggetto, documento, data, quantita, importo });
 const file = { formato: "blucheck-abbonamenti-1", fonte: "prova", anni: [
@@ -50,6 +53,8 @@ ok(cli("RISTO SRLS").gestionale === "si" && cli("RISTO SRLS").abbSw["2025"].cano
 ok(cli("RUPE DELLE STELLE DI NAPOLITANO GIANNI").nomiBlugest?.[0] === "AZ.AGR.RUPE DELLE STELLE DI NAPOLITANO G.", "nome BluGest ricordato");
 ok(cli("FATANO SPA")?.abbSw?.["2025"] && cli("FATANO SPA").gestionale === "si", "cliente nuovo creato");
 ok(cli("Bar Due").abbSw["2024"], "anno non nel file lasciato com'è");
+const app = (id) => r.j.apparecchi.find((a) => a.id === id);
+ok(app("a1").abbSw === true && app("a3").abbSw === undefined && app("a3b").abbSw === undefined, "1 canone e 1 registratore: collegato; 1 canone e 2 registratori: da scegliere");
 // secondo import: niente abbinamenti a mano, niente cambi; senza la riga di Risto il 2025 di Risto si toglie
 r = await az("POST", "/api/importa-abbonamenti", file);
 ok(r.j.nonTrovati.length === 0 && r.j.cambi.length === 0, "secondo import: nomi ricordati, nessun cambio " + JSON.stringify(r.j.cambi.map((c) => c.ragione)));

@@ -214,6 +214,7 @@ const AIUTI = {
       ["Aggiornato", "Si è passati dal cliente e gli aggiornamenti sono installati: resta la data e chi l'ha fatto."],
       ["Non installabile", "Gli aggiornamenti non si possono mettere: va indicato il motivo, hardware troppo vecchio o cliente non disposto a pagarli."],
       ["Abb. 2025, Abb. 2026…", "Anni di abbonamento software pagati dal cliente (canone annuale), presi dalle vendite di BluGest con Impostazioni > «Importa abbonamenti software»."],
+      ["Registratori e abbonamento", "Nella scheda del cliente indichi per ogni registratore se lavora col software (e quale: è quello coperto dall'abbonamento) o se è usato solo come cassa. Se i canoni pagati bastano per tutti i registratori, il collegamento si fa da solo all'import degli abbonamenti o dei QR."],
       ["Abbonamento da rinnovare", "Clienti che hanno pagato l'abbonamento software negli anni passati ma non ancora per l'anno in corso."],
       ["Esporta TXT / PDF", "L'elenco con i filtri e la ricerca attivi, da stampare o mandare."],
     ],
@@ -375,11 +376,19 @@ function panelAbbSw(c) {
       <td>${(x.documenti || []).map((d) => `${esc(d.documento)}${d.data ? " del " + fmtD(d.data) : ""}`).join("<br>")}</td></tr>`; }).join("")}</tbody></table></div></div>`;
 }
 // matricole dei registratori del cliente (dismessi esclusi); quelli dello storico senza matricola = «da completare»
-const matricoleCli = (c) => S.apparecchi.filter((a) => a.clienteId === c.id && !a.dismesso).map((a) => a.matricola || "da completare");
+const rtCli = (c) => S.apparecchi.filter((a) => a.clienteId === c.id && !a.dismesso);
+const matricoleCli = (c) => rtCli(c).map((a) => a.matricola || "da completare");
+// abbonamento sul singolo registratore: a.abbSw true = col software (coperto dal canone), false = solo cassa (nessun software), assente = da decidere (solo se il cliente ha l'abbonamento).
+// I canoni sono quelli dell'anno più recente pagato; il server collega da solo i registratori quando i canoni bastano per tutti.
+const canoniCli = (c) => { const a = anniAbb(c); return a.length ? c.abbSw[a[a.length - 1]].canoni : 0; };
+const rtAbbTxt = (c, a) => a.abbSw === true ? `con abbonamento${a.software ? ", " + a.software : ""}` : a.abbSw === false ? "solo cassa" : canoniCli(c) ? "da abbinare: software o solo cassa?" : "";
+const rtTesti = (c) => rtCli(c).map((a) => { const t = rtAbbTxt(c, a); return (a.matricola || "da completare") + (t ? ` (${t})` : ""); });
+const rtDaAbbinare = (c) => canoniCli(c) > 0 && rtCli(c).some((a) => a.abbSw !== true && a.abbSw !== false);
+const rtTroppi = (c) => rtCli(c).filter((a) => a.abbSw === true).length > canoniCli(c);
 function righeAggiornamenti() {
   const q = norm(UI.qg);
-  return S.clienti.filter(usaGestionale).map((c) => ({ c, st: statoAgg(c), rt: matricoleCli(c) }))
-    .filter((r) => UI.fg === "tutti" || (UI.fg === "da_rinnovare" ? daRinnovare(r.c) : r.st.k === UI.fg))
+  return S.clienti.filter(usaGestionale).map((c) => ({ c, st: statoAgg(c), rt: rtTesti(c) }))
+    .filter((r) => UI.fg === "tutti" || (UI.fg === "da_rinnovare" ? daRinnovare(r.c) : UI.fg === "rt_abb" ? rtDaAbbinare(r.c) || rtTroppi(r.c) : r.st.k === UI.fg))
     .filter((r) => !q || norm([r.c.ragione, r.c.piva, r.c.domicilio, r.c.telefono, r.c.software, r.c.aggSw?.note, ...(r.c.nomiBlugest || []), ...r.rt].join(" ")).includes(q))
     .sort((x, y) => norm(x.c.ragione).localeCompare(norm(y.c.ragione)));
 }
@@ -391,22 +400,40 @@ function viewAggiornamenti() {
   const senza = S.clienti.filter((c) => !c.gestionale).length;
   return `<div class="spread"><h2>Aggiornamenti software <span class="faint">(${tutti.length})</span></h2>
     <div class="row"><button class="btn sm" data-act="agg-txt">Esporta TXT</button><button class="btn sm" data-act="agg-pdf">Esporta PDF</button></div></div>
-  <div class="stats">${stat("tutti", "", tutti.length, "Con gestionale")}${stat("da_fare", "warn", n("da_fare"), "Da fare")}${stat("aggiornato", "okk", n("aggiornato"), "Aggiornati")}${stat("non_installabile", "bad", n("non_installabile"), "Non installabili")}${(() => { const k = S.clienti.filter(usaGestionale).filter(daRinnovare).length; return k || UI.fg === "da_rinnovare" ? stat("da_rinnovare", "warn", k, `Abbonamento ${annoAbb()} da rinnovare`) : ""; })()}</div>
+  <div class="stats">${stat("tutti", "", tutti.length, "Con gestionale")}${stat("da_fare", "warn", n("da_fare"), "Da fare")}${stat("aggiornato", "okk", n("aggiornato"), "Aggiornati")}${stat("non_installabile", "bad", n("non_installabile"), "Non installabili")}${(() => { const k = S.clienti.filter(usaGestionale).filter(daRinnovare).length; return k || UI.fg === "da_rinnovare" ? stat("da_rinnovare", "warn", k, `Abbonamento ${annoAbb()} da rinnovare`) : ""; })()}${(() => { const k = S.clienti.filter(usaGestionale).filter((c) => rtDaAbbinare(c) || rtTroppi(c)).length; return k || UI.fg === "rt_abb" ? stat("rt_abb", "warn", k, "Registratori da abbinare all'abbonamento") : ""; })()}</div>
   ${senza ? `<p class="faint" style="margin:0">${senza} ${senza === 1 ? "cliente non ha" : "clienti non hanno"} ancora la risposta a «Usa un software gestionale?»: si indica nella scheda del cliente.</p>` : ""}
   <input type="search" id="qAgg" placeholder="Cerca cliente, P.IVA, matricola, software, note…" value="${esc(UI.qg)}" data-bind="qg">
   ${rows.length ? `<div class="list">${rows.map(({ c, st, rt }) => `<button class="item" data-act="open-agg" data-id="${c.id}"><span class="stripe ${st.cls}"></span>
-    <span style="min-width:0"><span class="t">${esc(c.ragione)}</span>${rt.length ? `<br><span class="s">RT <span class="mono">${rt.map(esc).join(", ")}</span></span>` : ""}<br><span class="s">${c.software ? `<span class="tag">${esc(c.software)}</span>` : ""}${abbTags(c)}${esc(st.det || (c.telefono ? c.telefono : ""))}</span></span>
+    <span style="min-width:0"><span class="t">${esc(c.ragione)}</span>${rt.length ? `<br><span class="s">RT ${rt.map((t) => `<span class="mono">${esc(t)}</span>`).join(" · ")}</span>` : ""}<br><span class="s">${c.software ? `<span class="tag">${esc(c.software)}</span>` : ""}${abbTags(c)}${esc(st.det || (c.telefono ? c.telefono : ""))}</span></span>
     <span class="when"><span class="pill ${st.cls}">${st.txt}</span></span></button>`).join("")}</div>`
     : `<div class="list"><div class="empty">${tutti.length ? "Nessun cliente con questi filtri." : `<b>Nessun cliente con software gestionale.</b><span>Nella scheda del cliente rispondi «Sì» a «Usa un software gestionale?» e indica quale.</span>`}</div></div>`}`;
+}
+function panelRtAbb(c) {
+  const apps = rtCli(c), n = canoniCli(c);
+  const b = (a, v, l) => `<button data-act="rt-abb" data-id="${a.id}" data-v="${v}" aria-pressed="${a.abbSw === (v === "si")}">${l}</button>`;
+  return `<div class="panel"><h2>Registratori e abbonamento</h2>
+    <p class="faint" style="margin:0">${n ? `Canoni pagati nell'ultimo anno: <b>${n}</b>. Indica quale registratore lavora col software (e quindi ha l'abbonamento) e quale è usato solo come cassa.` : "Il cliente non ha abbonamenti software importati: puoi comunque indicare il software di ogni registratore."}</p>
+    ${rtTroppi(c) ? `<div class="banner"><span>Hai segnato più registratori con abbonamento (${apps.filter((a) => a.abbSw === true).length}) dei canoni pagati (${n}).</span></div>` : ""}
+    ${apps.length ? `<div class="list">${apps.map((a) => `<div class="item static stack"><span class="stripe ${a.abbSw === true ? "ok" : a.abbSw === false ? "" : n ? "warn" : ""}"></span>
+      <span style="min-width:0;flex:1"><span class="t mono">${esc(a.matricola || "Matricola da completare")}</span> <span class="faint">${esc(a.modello || "")}</span><br>
+      <span class="seg choose" role="group" style="margin-top:6px">${b(a, "si", "Con software (abbonamento)")}${b(a, "no", "Solo cassa")}</span>
+      ${a.abbSw === false ? "" : `<label class="field" style="margin-top:6px"><span>Software su questo registratore</span><input type="text" data-rtsw="${a.id}" value="${esc(a.software || "")}" placeholder="${esc(c.software || "Nome del software")}"></label>`}</span></div>`).join("")}</div>`
+      : `<p class="faint">Nessun registratore: aggiungilo dalla scheda cliente o con «Importa QR da file».</p>`}</div>`;
+}
+async function salvaRtAbb(id, campi) {
+  if (!guardWrite()) return;
+  const a = S.apparecchi.find((x) => x.id === id); if (!a) return;
+  try { await put("apparecchi", id, { ...a, ...campi }); toast("Registratore aggiornato"); render(); } catch (err) { apiError(err); }
 }
 function sheetAgg() {
   const c = cliente(UI.sheet.id); if (!c) return head("Aggiornamenti") + `<div class="sheet-body gut"><p>Cliente non trovato.</p></div>`;
   const d = UI.sheet.draft, st = statoAgg(c);
   const b = (act, v, cur, l) => `<button data-act="${act}" data-v="${v}" aria-pressed="${cur === v}">${l}</button>`;
   return head(esc(c.ragione), `<button class="btn sm" data-act="open-cli" data-id="${c.id}">Scheda cliente</button>`) + `<div class="sheet-body gut">
-    <div class="panel"><dl class="kv"><dt>Software</dt><dd>${esc(c.software || "Non indicato")}</dd><dt>Registratori</dt><dd class="mono">${esc(matricoleCli(c).join(", ") || "—")}</dd><dt>Telefono</dt><dd>${esc(c.telefono || "—")}</dd><dt>Domicilio</dt><dd>${esc(c.domicilio || "—")}</dd>
+    <div class="panel"><dl class="kv"><dt>Software</dt><dd>${esc(c.software || "Non indicato")}</dd><dt>Telefono</dt><dd>${esc(c.telefono || "—")}</dd><dt>Domicilio</dt><dd>${esc(c.domicilio || "—")}</dd>
       <dt>Stato attuale</dt><dd><span class="pill ${st.cls}">${st.txt}</span> ${esc(st.det)}</dd></dl></div>
     ${panelAbbSw(c)}
+    ${panelRtAbb(c)}
     <div class="panel"><h2>Aggiornamenti</h2>
       <div class="field"><span>Esito</span><div class="seg wide choose" role="group">${b("agg-stato", "aggiornato", d.stato, "Aggiornato")}${b("agg-stato", "non_installabile", d.stato, "Non installabile")}</div></div>
       ${d.stato === "non_installabile" ? `<div class="field"><span>Perché non si possono installare</span><div class="seg wide choose" role="group">${b("agg-motivo", "hardware", d.motivo, "Hardware troppo vecchio")}${b("agg-motivo", "non_paga", d.motivo, "Il cliente non vuole pagarli")}</div></div>` : ""}
@@ -430,7 +457,7 @@ async function saveAgg(reset) {
   try { await put("clienti", c.id, { ...c, aggSw }); toast(reset ? "Riportato a «da fare»" : "Aggiornamenti salvati"); closeSheet(); render(); } catch (err) { apiError(err); }
 }
 function aggTitolo() {
-  const f = { tutti: "", da_fare: " - da fare", aggiornato: " - aggiornati", non_installabile: " - non installabili", da_rinnovare: ` - abbonamento ${annoAbb()} da rinnovare` }[UI.fg] || "";
+  const f = { rt_abb: " - registratori da abbinare all'abbonamento", tutti: "", da_fare: " - da fare", aggiornato: " - aggiornati", non_installabile: " - non installabili", da_rinnovare: ` - abbonamento ${annoAbb()} da rinnovare` }[UI.fg] || "";
   return `Aggiornamenti software${f}${UI.qg ? ` (ricerca: ${UI.qg})` : ""}`;
 }
 function exportAggTxt() {
@@ -438,7 +465,7 @@ function exportAggTxt() {
   const out = [L.ragione || "", aggTitolo().toUpperCase(), `Al ${fmtD(todayISO())} - ${rows.length} clienti`, ""];
   for (const { c, st, rt } of rows) {
     out.push("-".repeat(60), c.ragione || "");
-    out.push(`Registratori: ${rt.length ? rt.join(", ") : "nessuno"}`);
+    out.push(`Registratori: ${rt.length ? rt.join("; ") : "nessuno"}`);
     if (c.piva) out.push(`P.IVA: ${c.piva}`);
     if (c.domicilio) out.push(`Domicilio: ${c.domicilio}`);
     if (c.telefono) out.push(`Telefono: ${c.telefono}`);
@@ -1296,6 +1323,7 @@ document.addEventListener("click", async (e) => {
     case "save-agg": await saveAgg(false); break;
     case "agg-reset": await saveAgg(true); break;
     case "agg-filtro": UI.fg = el.dataset.v; render(); break;
+    case "rt-abb": { const a = S.apparecchi.find((x) => x.id === id); if (a) await salvaRtAbb(id, { abbSw: el.dataset.v === "si" }); break; }
     case "agg-txt": exportAggTxt(); break;
     case "agg-pdf": exportAggPdf(); break;
     case "new-app": if (!guardWrite()) break; openSheet({ kind: "app-edit", id: null, draft: { clienteId: el.dataset.cli || "", nuovoCliente: {} }, qr: null }); break;
@@ -1399,7 +1427,7 @@ document.addEventListener("input", (e) => {
   if (t.dataset.ag && UI.sheet?.draft) { UI.sheet.draft[t.dataset.ag] = t.value; return; }
 });
 document.addEventListener("change", (e) => { const t = e.target; if ((t.type === "checkbox" || t.tagName === "SELECT") && (t.dataset.f || t.dataset.fi || t.dataset.ae || t.dataset.ce)) t.dispatchEvent(new Event("input", { bubbles: true })); });
-document.addEventListener("change", (e) => { if (e.target.id === "abbFile") abbFileScelti(); });
+document.addEventListener("change", (e) => { if (e.target.id === "abbFile") abbFileScelti(); if (e.target.dataset.rtsw) salvaRtAbb(e.target.dataset.rtsw, { software: e.target.value.trim() }); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && UI.sheet && !$("#padRoot").innerHTML) closeSheet(); });
 
 async function aeRefresh(id, el) {

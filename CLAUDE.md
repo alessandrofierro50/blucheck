@@ -71,7 +71,13 @@ Questo software fa parte del progetto BluCode Informatica. La memoria condivisa 
       riepilogo («Probabile» = `proponiCliente`, parole in comune). Sul cliente `abbSw` = {"<anno>": {canoni, importo, documenti:[…]}}, `gestionale = "si"`;
       «nuovo» crea un cliente con la sola ragione sociale. Conferma: backup `data/backup/blucheck-prima-import-abbonamenti-*.db` e una transazione.
       In «Aggiornamenti» etichette «Abb. <anno>», riquadro/filtro «Abbonamento <anno corrente> da rinnovare» (pagato negli anni passati, non quest'anno),
-      tabella «Abbonamento software» nella scheda aggiornamenti e nella scheda cliente, anni anche in TXT/PDF. Matricole dei registratori non dismessi (`matricoleCli`, «da completare» se senza matricola) in elenco, scheda, ricerca e TXT/PDF. Prova: `test/abbonamenti.mjs`.
+      tabella «Abbonamento software» nella scheda aggiornamenti e nella scheda cliente, anni anche in TXT/PDF. Matricole dei registratori non dismessi (`matricoleCli`, «da completare» se senza matricola) in elenco, scheda, ricerca e TXT/PDF.
+      Abbonamento sul singolo registratore: `apparecchio.abbSw` true = lavora col software (coperto dal canone; `apparecchio.software` = quale),
+      false = solo cassa (nessun software), assente = da decidere. Canoni = anno pagato più recente (`canoniAbb` server, `canoniCli` app).
+      `collegaRtAbbonamento`/`rtDaCollegare` (server) collegano da soli i registratori non decisi solo se i canoni bastano per tutti, dopo l'import
+      degli abbonamenti e dopo l'import dei QR (avviso nel riepilogo QR: «si collega» o «scegli nella scheda»). Scheda «Aggiornamenti» del cliente:
+      pannello «Registratori e abbonamento» (`panelRtAbb`, «Con software (abbonamento)» / «Solo cassa» + software per registratore); riquadro/filtro
+      «Registratori da abbinare all'abbonamento» (`rt_abb`: non decisi o più registratori col software dei canoni). Stato di ogni matricola in elenco e TXT/PDF. Prova: `test/abbonamenti.mjs`.
       I CSV con i dati dei clienti NON vanno nel repository.
 - [x] Planning (2026-11-18): sezione «Planning» (`public/js/planning.js`, caricato prima di `app.js`; stato in `PL`, eventi propri su
       `data-pl-act` / `data-pl`) con il lavoro da fare in un giorno, in un mese o da data a data, raggruppato per giorno e cliente:
