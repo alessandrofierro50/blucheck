@@ -1165,7 +1165,7 @@ function panelTermica(v) {
     <div class="row">${bt ? `<button class="btn primary" data-act="bt-stampa" data-id="${v.id}" ${st.busy ? "disabled" : ""}>${st.busy ? `Stampa in corso… ${Math.round((st.pct || 0) * 100)}%` : "Stampa sulla termica"}</button>${Termica.device ? `<button class="btn sm" data-act="bt-cambia" data-id="${v.id}">Cambia stampante</button>` : ""}` : ""}
       ${isAndroid() ? `<button class="btn${bt ? " sm" : ""}" data-act="bt-rawbt" data-id="${v.id}">Stampa con RawBT</button>` : ""}
       ${serDisponibile() ? `<button class="btn${bt ? " sm" : ""}" data-act="ser-stampa" data-id="${v.id}" ${st.busy ? "disabled" : ""}>Stampa da USB / porta COM</button>` : ""}
-      <button class="btn${bt ? " sm" : ""}" data-act="pdf80-share" data-id="${v.id}">Condividi PDF 80 mm</button></div>
+      <button class="btn${bt ? " sm" : ""}" data-act="pdf80-share" data-id="${v.id}">Condividi PDF 80 mm</button>${st.busy ? `<button class="btn sm" data-act="stampa-annulla">Annulla</button>` : ""}</div>
     ${velocitaSeg()}
     ${st.err ? `<div class="qrres"><b>Stampa non riuscita</b>${esc(st.err)}</div>` : ""}</div>`;
 }
@@ -1186,7 +1186,7 @@ function panelProvaTermica() {
     <div class="row">${bt ? `<button class="btn${isAndroid() ? " primary" : ""}" data-act="prova-bt" ${PROVA.busy ? "disabled" : ""}>${PROVA.busy ? `Stampa in corso… ${Math.round((PROVA.pct || 0) * 100)}%` : "Stampa con Bluetooth"}</button>` : ""}
       ${isAndroid() ? `<button class="btn" data-act="prova-rawbt">Stampa con RawBT</button>` : ""}
       ${serDisponibile() ? `<button class="btn${isAndroid() ? "" : " primary"}" data-act="prova-ser" ${PROVA.busy ? "disabled" : ""}>Stampa da USB / porta COM</button>` : ""}
-      <button class="btn" data-act="prova-pdf">PDF 80 mm (Windows / altre app)</button></div>
+      <button class="btn" data-act="prova-pdf">PDF 80 mm (Windows / altre app)</button>${PROVA.busy ? `<button class="btn sm" data-act="stampa-annulla">Annulla</button>` : ""}</div>
     <p class="faint" style="margin:0">Dal computer (Chrome o Edge) usa «Stampa da USB / porta COM»: scegli la porta della stampante (USB o Bluetooth abbinato) e la scheda esce lunga quanto serve, con i caratteri della stampante e il taglio, senza impostare il driver. Bluetooth diretto: solo stampanti «BLE» con Chrome su Android; se la tua non compare usa RawBT. Il PDF resta per stampare col driver POS80 di Windows.</p>
     ${PROVA.err ? `<div class="qrres"><b>Stampa non riuscita</b>${esc(PROVA.err)}</div>` : ""}`;
 }
@@ -1318,6 +1318,7 @@ document.addEventListener("click", async (e) => {
     case "ser-stampa": await stampaSeriale(id, !Seriale.port); break;
     case "prova-rawbt": try { location.href = rawbtUrl(await bytesProva()); setTimeout(() => toast("Se non si apre niente, installa RawBT dal Play Store e collega lì la stampante.", 6000), 1500); } catch (err) { apiError(err); } break;
     case "prova-pdf": { const w = window.open("", "_blank"); try { const blob = pdfSchedaBianca(PROVA.tipo, lab()).output("blob"), url = URL.createObjectURL(blob); if (w && !w.closed) w.location.href = url; else scaricaFile(`Scheda_verifica_80mm_${PROVA.tipo}.pdf`, blob); } catch (err) { w?.close(); apiError(err); } break; }
+    case "stampa-annulla": stampaAnnulla(); break;
     case "bt-vel": ls.set(BT_PREF, { ...btPref(), velocita: el.dataset.v, lenta: undefined }); if (UI.sheet) renderSheet(); paintProva(); break;
     case "bt-stampa": await stampaTermica(id, !Termica.device); break;
     case "bt-cambia": await stampaTermica(id, true); break;

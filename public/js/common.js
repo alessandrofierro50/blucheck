@@ -114,15 +114,26 @@ function puntiCarta(b) {
   }
   return w;
 }
+// Stampa in corso: si può annullare (tasto «Annulla»), e se la stampante smette di rispondere a una scrittura per STAMPA_TIMEOUT ms
+// l'invio si ferma con un errore invece di restare «in corso» per sempre (succedeva col Bluetooth quando la stampante si scollega).
+const STAMPA_TIMEOUT = 8000;
+const Stampa = { attiva: false, annulla: null };
+const stampaAnnulla = () => { if (Stampa.annulla) Stampa.annulla(); };
+const errStampa = (nome, msg) => Object.assign(new Error(msg), { name: nome });
 async function inviaARitmo(bytes, pezzo, scrivi, onProgress, pausaFissa = 0) {
   const r = ritmo(), w = r.mms ? puntiCarta(bytes) : null, msPunto = r.mms ? 1000 / (r.mms * 8) : 0, t0 = performance.now();
-  const dorme = (ms) => new Promise((ok) => setTimeout(ok, ms)); let punti = 0;
+  let punti = 0, fermo = null; const stop = new Promise((_, no) => { fermo = no; }); stop.catch(() => { });
+  Stampa.attiva = true; Stampa.annulla = () => fermo(errStampa("AbortError", "Stampa annullata. Se la stampante resta ferma o stampa segni strani, spegnila e riaccendila."));
+  const entro = (p, ms, msg) => { let t; return Promise.race([p, stop, new Promise((_, no) => { t = setTimeout(() => no(errStampa("TimeoutError", msg)), ms); })]).finally(() => clearTimeout(t)); };
+  const dorme = (ms) => entro(new Promise((ok) => setTimeout(ok, ms)), ms + 1000, "");
+  try {
   for (let i = 0; i < bytes.length; i += pezzo) {
-    await scrivi(bytes.slice(i, i + pezzo));
+    await entro(Promise.resolve().then(() => scrivi(bytes.slice(i, i + pezzo))), STAMPA_TIMEOUT, "La stampante non risponde più: controlla che sia accesa e vicina, poi riprova. Se resta ferma, spegnila e riaccendila.");
     if (w) { for (let k = i; k < Math.min(i + pezzo, bytes.length); k++) punti += w[k]; const resta = t0 + punti * msPunto - performance.now(); if (resta > 1) await dorme(resta); }
     else if (pausaFissa) await dorme(pausaFissa);
     onProgress?.(Math.min(1, (i + pezzo) / bytes.length));
   }
+  } finally { Stampa.attiva = false; Stampa.annulla = null; }
 }
 const btDisponibile = () => !!(navigator.bluetooth && window.isSecureContext);
 const Termica = { device: null, ch: null };
@@ -134,7 +145,13 @@ async function btCollega(scegli) {
     ls.set(BT_PREF, { ...btPref(), nome: Termica.device.name || "Stampante" });
   }
   if (Termica.ch && Termica.device.gatt.connected) return Termica.ch;
-  const srv = await Termica.device.gatt.connect();
+  // il collegamento può restare appeso (stampante spenta, lontana o già collegata a un altro dispositivo): massimo 15 secondi, annullabile
+  let fermo = null, t = 0; const stop = new Promise((_, no) => { fermo = no; }); stop.catch(() => { });
+  Stampa.attiva = true; Stampa.annulla = () => fermo(errStampa("AbortError", "Collegamento annullato."));
+  let srv;
+  try { srv = await Promise.race([Termica.device.gatt.connect(), stop, new Promise((_, no) => { t = setTimeout(() => no(errStampa("TimeoutError", `Non riesco a collegarmi a «${Termica.device.name || "stampante"}»: controlla che sia accesa, vicina e non collegata a un altro telefono o computer, poi riprova.`)), 15000); })]); }
+  catch (e) { try { Termica.device.gatt.disconnect(); } catch { } throw e; }
+  finally { clearTimeout(t); Stampa.attiva = false; Stampa.annulla = null; }
   let servizi = []; try { servizi = await srv.getPrimaryServices(); } catch { }
   for (const sv of servizi) {
     let chs = []; try { chs = await sv.getCharacteristics(); } catch { continue; }
@@ -146,7 +163,8 @@ async function btCollega(scegli) {
 }
 async function btStampa(bytes, onProgress) {
   const ch = await btCollega(false), r = ritmo(), senzaRisposta = ch.properties.writeWithoutResponse;
-  await inviaARitmo(bytes, senzaRisposta ? r.bt : r.btr, (p) => senzaRisposta ? ch.writeValueWithoutResponse(p) : ch.writeValueWithResponse(p), onProgress, senzaRisposta ? 12 : 0);
+  try { await inviaARitmo(bytes, senzaRisposta ? r.bt : r.btr, (p) => senzaRisposta ? ch.writeValueWithoutResponse(p) : ch.writeValueWithResponse(p), onProgress, senzaRisposta ? 12 : 0); }
+  catch (e) { if (e?.name === "AbortError" || e?.name === "TimeoutError") { Termica.ch = null; try { Termica.device?.gatt.disconnect(); } catch { } } throw e; } // la prossima stampa ricollega da capo
 }
 /* Porta seriale (Web Serial, Chrome/Edge su computer): la stampante collegata via USB o abbinata in Bluetooth classico ha una
    porta COM; ci si mandano gli stessi comandi ESC/POS, senza driver: carta lunga quanto la stampa, caratteri nativi e taglio. */
@@ -164,8 +182,8 @@ async function serStampa(bytes, scegli, onProgress) {
   catch (e) { Seriale.port = null; throw new Error("Non riesco ad aprire la porta: forse la usa un altro programma (o la coda di stampa di Windows), oppure la stampante è spenta. Chiudi gli altri programmi e riprova, o scegli un'altra porta."); }
   const w = port.writable.getWriter();
   try { await inviaARitmo(bytes, ritmo().ser, (p) => w.write(p), onProgress); }
-  finally { w.releaseLock(); }
-  await port.close().catch(() => { }); // la porta torna libera per Windows e gli altri programmi
+  catch (e) { await Promise.race([w.abort().catch(() => { }), new Promise((ok) => setTimeout(ok, 2000))]); throw e; } // annullata o bloccata: butta i dati in coda
+  finally { try { w.releaseLock(); } catch { } await Promise.race([port.close().catch(() => { }), new Promise((ok) => setTimeout(ok, 3000))]); } // la porta torna libera per Windows e gli altri programmi
 }
 // RawBT (app Android gratuita): riceve gli stessi comandi ESC/POS e li manda anche alle stampanti Bluetooth classiche
 function rawbtUrl(bytes) {

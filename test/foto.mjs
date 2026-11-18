@@ -23,7 +23,7 @@ await page.route("https://blucheck.prova/**", (rt) => {
 await page.route("https://fonts.googleapis.com/**", (rt) => rt.fulfill({ contentType: "text/css", body: "" }));
 await page.addInitScript(() => {
   window.__ricevuti = [];
-  const ch = { properties: { writeWithoutResponse: true, write: true }, async writeValueWithoutResponse(p) { window.__ricevuti.push(...p); } };
+  const ch = { properties: { writeWithoutResponse: true, write: true }, writeValueWithoutResponse(p) { window.__ricevuti.push(...p); return window.__blocca ? new Promise(() => { }) : Promise.resolve(); } };
   const dev = { name: "Termica prova", gatt: { connected: false, async connect() { this.connected = true; return { getPrimaryServices: async () => [{ getCharacteristics: async () => [ch] }] }; }, disconnect() { this.connected = false; } } };
   Object.defineProperty(navigator, "bluetooth", { value: { requestDevice: async () => dev }, configurable: true });
   window.__seriale = [];
@@ -31,6 +31,7 @@ await page.addInitScript(() => {
   Object.defineProperty(navigator, "serial", { value: { getPorts: async () => [], requestPort: async () => porta }, configurable: true });
 });
 await page.goto("https://blucheck.prova/foto");
+ok(await page.evaluate(() => /Scegli prima una foto/.test($("#ftRoot").textContent)), "senza foto: spiega perché i tasti di stampa sono spenti");
 
 const r = await page.evaluate(async () => {
   // "foto" a colori 1600x1000: sfumatura orizzontale di grigi in alto, colori e un cerchio in basso
@@ -97,6 +98,17 @@ ok(await page.evaluate(() => window.__seriale.length === escposFoto(FT.ris).leng
 await page.click('[data-ft="carta"][data-v="58"]');
 ok(await page.evaluate(() => FT.ris.w === 384 && JSON.parse(localStorage.blucheck_termica).carta === 58), "pagina: carta 58 mm -> 384 punti, preferenza condivisa con i rapporti");
 await page.click('[data-ft="carta"][data-v="80"]');
+// stampante che smette di rispondere: «Annulla» ferma la stampa e i tasti tornano attivi; senza Annulla scade da sola
+await page.evaluate(() => { window.__blocca = true; });
+await page.click('[data-ft="bt"]'); await page.waitForSelector('[data-ft="annulla"]');
+ok(await page.evaluate(() => FT.busy && $('[data-ft="vel"][data-v="molto"]') && !$('[data-ft="vel"][data-v="molto"]').disabled), "stampa appesa: c'è «Annulla» e la velocità resta cambiabile");
+await page.click('[data-ft="annulla"]'); await page.waitForFunction(() => !FT.busy, null, { timeout: 3000 });
+ok(await page.evaluate(() => /annullata/i.test(FT.err) && !$('[data-ft="bt"]').disabled && !$('[data-ft="ser"]').disabled && !$('[data-ft="annulla"]')), "Annulla: stampa ferma, tasti di nuovo attivi");
+{ const t = Date.now(); await page.click('[data-ft="bt"]'); await page.waitForFunction(() => !FT.busy, null, { timeout: 15000 });
+  ok(await page.evaluate(() => /non risponde/i.test(FT.err)) && Date.now() - t < 12000, `stampante muta: errore dopo ${((Date.now() - t) / 1000).toFixed(1)} s invece di restare «in corso»`); }
+await page.evaluate(() => { window.__blocca = false; window.__ricevuti = []; });
+await page.click('[data-ft="bt"]'); await page.waitForFunction(() => !FT.busy);
+ok(await page.evaluate(() => !FT.err && window.__ricevuti.length === escposFoto(FT.ris).length), "dopo l'errore la stampa successiva riparte (ricollega da capo)");
 await page.click("#ftCanvas");
 ok(await page.evaluate(() => $("#ftCanvas").width === 576 && $("#ftCanvas").classList.contains("zoom")), "pagina: tocco sull'anteprima = punti veri 1:1");
 await page.click("#ftCanvas");
