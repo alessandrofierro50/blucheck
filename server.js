@@ -838,28 +838,41 @@ app.delete("/api/dati/:coll/:id", auth, azOnly, (req, res) => {
    alla conferma si fa un backup del database e si scrive tutto in una sola transazione. I clienti già presenti (stessa ragione
    sociale) si saltano, così un secondo import dello stesso file non crea doppioni. Ogni cliente riceve un apparecchio
    "da completare" con la data dell'ultima verificazione: la scadenza biennale parte da lì. */
+const ANAGRAFICA = ["piva", "cf", "sdi", "pec", "email", "telefono", "domicilio"];
 const normRagione = (s) => String(s || "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
 function leggiStorico(body, aziendaId) {
   if (body?.formato !== "blucheck-storico-1" || !Array.isArray(body.clienti)) fail(400, "File non riconosciuto: serve un file di storico BluCheck (formato blucheck-storico-1).");
   if (body.clienti.length > 5000) fail(413, "Troppi clienti in un solo file (massimo 5000).");
-  const esistenti = new Set(db.prepare("SELECT data FROM dati WHERE azienda_id=? AND coll='clienti' AND eliminato=0").all(aziendaId).map((r) => normRagione(JSON.parse(r.data).ragione)));
-  const nuovi = [], saltati = [], visti = new Set();
+  const esistenti = new Map(db.prepare("SELECT data FROM dati WHERE azienda_id=? AND coll='clienti' AND eliminato=0").all(aziendaId).map((r) => JSON.parse(r.data)).map((d) => [normRagione(d.ragione), d]));
+  const comuniImportati = new Map(db.prepare("SELECT data FROM dati WHERE azienda_id=? AND coll='apparecchi' AND eliminato=0").all(aziendaId).map((r) => JSON.parse(r.data)).filter((a) => a.importato).map((a) => [a.clienteId, a.localita]));
+  const nuovi = [], saltati = [], completare = [], visti = new Set();
   for (const c of body.clienti) {
     const ragione = str(c?.ragione, 200).toUpperCase(); const k = normRagione(ragione);
     if (!k) continue;
-    if (esistenti.has(k) || visti.has(k)) { saltati.push(ragione); continue; }
+    const anag = {};
+    for (const f of ANAGRAFICA) { const v = str(c?.[f], 300); if (v) anag[f] = f === "email" || f === "pec" ? v.toLowerCase() : v.toUpperCase(); }
+    if (visti.has(k)) { saltati.push(ragione); continue; }
     visti.add(k);
+    const gia = esistenti.get(k);
+    if (gia) {
+      // cliente già in BluCheck: si riempiono solo i campi dell'anagrafica ancora vuoti, il resto non si tocca
+      // il primo import metteva nel domicilio il comune del foglio (uguale al comune dell'apparecchio importato): quello si può sostituire
+      const vuoto = (f) => !String(gia[f] || "").trim() || (f === "domicilio" && gia.importato && gia.domicilio === comuniImportati.get(gia.id));
+      const campi = Object.fromEntries(Object.entries(anag).filter(([f]) => vuoto(f) && anag[f] !== gia[f]));
+      if (Object.keys(campi).length) completare.push({ cliente: gia, campi }); else saltati.push(ragione);
+      continue;
+    }
     const storico = (Array.isArray(c.storicoVerifiche) ? c.storicoVerifiche : []).filter(isDate).sort();
     const ultima = isDate(c.ultimaVerifica) ? c.ultimaVerifica : (storico[storico.length - 1] || "");
-    nuovi.push({ ragione, domicilio: str(c.domicilio, 200).toUpperCase(), note: str(c.note, 1000), cessato: !!c.cessato, verificato: !!c.verificato, ultima, storico, segnalazioni: str(c.segnalazioni, 1000) });
+    nuovi.push({ ragione, anag, localita: str(c.localita || c.domicilio, 200).toUpperCase(), note: str(c.note, 1000), cessato: !!c.cessato, verificato: !!c.verificato, ultima, storico, segnalazioni: str(c.segnalazioni, 1000) });
   }
-  return { nuovi, saltati };
+  return { nuovi, saltati, completare };
 }
 app.post("/api/importa-storico", auth, azOnly, solo("admin"), wrap(async (req, res) => {
-  const { nuovi, saltati } = leggiStorico(req.body, req.azienda.id);
-  const riepilogo = { nuovi: nuovi.length, cessati: nuovi.filter((c) => c.cessato).length, verificati: nuovi.filter((c) => c.verificato).length, senza_data: nuovi.filter((c) => !c.ultima).length, saltati };
+  const { nuovi, saltati, completare } = leggiStorico(req.body, req.azienda.id);
+  const riepilogo = { nuovi: nuovi.length, completati: completare.length, cessati: nuovi.filter((c) => c.cessato).length, verificati: nuovi.filter((c) => c.verificato).length, senza_data: nuovi.filter((c) => !c.ultima).length, saltati };
   if (!req.body.conferma) return res.json({ anteprima: true, ...riepilogo });
-  if (!nuovi.length) return res.json({ importati: 0, ...riepilogo });
+  if (!nuovi.length && !completare.length) return res.json({ importati: 0, ...riepilogo });
   const dir = path.join(path.dirname(db.name), "backup");
   fs.mkdirSync(dir, { recursive: true });
   const backup = path.join(dir, `blucheck-prima-import-${new Date().toISOString().replace(/[:.]/g, "-")}.db`);
@@ -868,13 +881,14 @@ app.post("/api/importa-storico", auth, azOnly, solo("admin"), wrap(async (req, r
   db.transaction(() => {
     for (const c of nuovi) {
       const cid = uid(), aid = uid();
-      salvaDato(req.azienda.id, "clienti", cid, { id: cid, ragione: c.ragione, piva: "", domicilio: c.domicilio, telefono: "", email: "", referente: "", note: [c.note, c.segnalazioni].filter(Boolean).join("\n"),
+      salvaDato(req.azienda.id, "clienti", cid, { id: cid, ragione: c.ragione, piva: "", cf: "", sdi: "", pec: "", domicilio: "", telefono: "", email: "", ...c.anag, referente: "", note: [c.note, c.segnalazioni].filter(Boolean).join("\n"),
         cessato: c.cessato, verificato: c.verificato, verificatoIl: c.verificato ? oggi() : "", storicoVerifiche: c.storico, importato: { il: oggi(), fonte } }, req.user);
-      salvaDato(req.azienda.id, "apparecchi", aid, { id: aid, clienteId: cid, modello: "", matricola: "", indirizzo: "", localita: c.domicilio, firmware: "", firmwareData: "",
+      salvaDato(req.azienda.id, "apparecchi", aid, { id: aid, clienteId: cid, modello: "", matricola: "", indirizzo: "", localita: c.localita, firmware: "", firmwareData: "",
         ultimaVerifica: c.ultima, dgfeAnnuale: false, ultimoDgfe: "", dismesso: false, note: "IMPORTATO DALLO STORICO: MODELLO E MATRICOLA DA COMPLETARE ALLA PROSSIMA VERIFICA.", importato: true }, req.user);
     }
+    for (const { cliente, campi } of completare) salvaDato(req.azienda.id, "clienti", cliente.id, { ...cliente, ...campi }, req.user);
   })();
-  registra(req.user.email, "import_storico", `${req.azienda.ragione}: ${nuovi.length} clienti (${riepilogo.cessati} cessati), ${saltati.length} già presenti; backup ${path.basename(backup)}`, req.ip);
+  registra(req.user.email, "import_storico", `${req.azienda.ragione}: ${nuovi.length} clienti (${riepilogo.cessati} cessati), ${completare.length} completati, ${saltati.length} già presenti; backup ${path.basename(backup)}`, req.ip);
   res.json({ importati: nuovi.length, backup: path.basename(backup), ...riepilogo });
 }));
 app.get("/api/firma-tecnico/:id", auth, azOnly, (req, res) => {

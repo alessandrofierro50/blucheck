@@ -44,6 +44,9 @@ Questo software fa parte del progetto BluCode Informatica. La memoria condivisa 
       `clienti: [{ragione, domicilio, note, cessato, verificato, ultimaVerifica, storicoVerifiche, segnalazioni}]`; senza `conferma` è solo anteprima,
       con `conferma: true` fa prima `db.backup` in `data/backup/blucheck-prima-import-*.db`, poi una transazione. Clienti con la stessa ragione sociale
       (normalizzata) si saltano. Ogni cliente riceve un apparecchio senza modello/matricola («Registratore da completare») con `ultimaVerifica`.
+      Anagrafica nel file (2026-11-18, dall'export clienti di BluGest): `piva, cf, sdi, pec, email, telefono, domicilio` (campi anche in
+      «Modifica cliente») e `localita` = comune dell'apparecchio. Clienti già presenti: si riempiono solo i campi vuoti (`completati`; il domicilio
+      messo dal primo import = comune dell'apparecchio importato si sostituisce), segni, storico e date non si toccano.
       I file con i dati dei clienti NON vanno nel repository (è pubblico). Prova: `test/storico.mjs`.
 - [x] Aggiornamenti software (2026-11-18): in anagrafica cliente «Usa un software gestionale?» (`gestionale`: si/no/'') e «Quale software»
       (`software`); sezione «Aggiornamenti» (`viewAggiornamenti`, scheda `sheetAgg` in `public/js/app.js`) con i clienti che hanno `gestionale = si`

@@ -323,7 +323,7 @@ function viewApparecchi() {
 }
 function viewClienti() {
   const q = norm(UI.qc);
-  const list = S.clienti.filter((c) => !q || norm([c.ragione, c.piva, c.domicilio, c.telefono, c.referente].join(" ")).includes(q)).sort((x, y) => norm(x.ragione).localeCompare(norm(y.ragione)));
+  const list = S.clienti.filter((c) => !q || norm([c.ragione, c.piva, c.cf, c.domicilio, c.telefono, c.referente].join(" ")).includes(q)).sort((x, y) => norm(x.ragione).localeCompare(norm(y.ragione)));
   return `<div class="spread"><h2>Clienti <span class="faint">(${S.clienti.length})</span></h2><button class="btn primary sm" data-act="new-cli">+ Cliente</button></div>
   <input type="search" id="qCli" placeholder="Cerca ragione sociale, P.IVA, telefono…" value="${esc(UI.qc)}" data-bind="qc">
   ${list.length ? `<div class="list">${list.map((c) => {
@@ -729,7 +729,8 @@ function sheetCli() {
   return head(esc(c.ragione), `<button class="btn sm" data-act="edit-cli" data-id="${c.id}">Modifica</button>`) + `<div class="sheet-body gut">
     ${c.cessato ? `<div class="banner"><span><b>Cliente cessato:</b> i suoi registratori non compaiono più nelle scadenze.</span></div>` : ""}
     ${c.verificato ? `<div class="banner ok"><span><b>Verificato${c.verificatoIl ? ` il ${fmtD(c.verificatoIl)}` : ""}:</b> controllo iniziale fatto (aggiornamenti, verificazione periodica, DGFE).</span></div>` : c.importato && !c.cessato ? `<div class="banner info"><span><b>Da verificare:</b> cliente preso dallo storico. Controlla aggiornamenti, verificazione periodica e DGFE (annuale sui DTR), poi spunta «Verificato».</span></div>` : ""}
-    <div class="panel"><dl class="kv"><dt>P.IVA</dt><dd class="mono">${esc(c.piva || "—")}</dd><dt>Domicilio</dt><dd>${esc(c.domicilio || "—")}</dd>
+    <div class="panel"><dl class="kv"><dt>P.IVA</dt><dd class="mono">${esc(c.piva || "—")}</dd><dt>Codice fiscale</dt><dd class="mono">${esc(c.cf || "—")}</dd>
+      <dt>SDI / PEC</dt><dd><span class="mono">${esc(c.sdi || "—")}</span>${c.pec ? " · " + esc(c.pec) : ""}</dd><dt>Domicilio</dt><dd>${esc(c.domicilio || "—")}</dd>
       <dt>Telefono</dt><dd>${esc(c.telefono || "—")}</dd><dt>Email</dt><dd>${esc(c.email || "—")}</dd><dt>Referente</dt><dd>${esc(c.referente || "—")}</dd>
       <dt>Gestionale</dt><dd>${c.gestionale === "si" ? `Sì${c.software ? " · " + esc(c.software) : ""} · <a href="#" data-act="open-agg" data-id="${c.id}">aggiornamenti: ${statoAgg(c).txt.toLowerCase()}</a>` : c.gestionale === "no" ? "No" : "Non indicato"}</dd>
       <dt>Note</dt><dd style="white-space:pre-line">${esc(c.note || "—")}</dd></dl></div>
@@ -742,7 +743,7 @@ function sheetCli() {
 function sheetCliEdit() {
   const c = UI.sheet.draft; const f = (k, l, t = "text") => `<label class="field"><span>${l}</span><input type="${t}" id="ce_${k}" data-ce="${k}" value="${esc(c[k] ?? "")}"></label>`;
   return head(UI.sheet.id ? "Modifica cliente" : "Nuovo cliente") + `<div class="sheet-body gut"><div class="panel">
-    <div class="grid2">${f("ragione", "Ragione sociale")}${f("piva", "Partita IVA")}${f("domicilio", "Domicilio / Residenza")}${f("telefono", "Telefono", "tel")}${f("email", "Email", "email")}${f("referente", "Referente (nome, qualifica)")}</div>
+    <div class="grid2">${f("ragione", "Ragione sociale")}${f("piva", "Partita IVA")}${f("cf", "Codice fiscale")}${f("sdi", "Codice SDI")}${f("pec", "PEC", "email")}${f("domicilio", "Domicilio / Residenza")}${f("telefono", "Telefono", "tel")}${f("email", "Email", "email")}${f("referente", "Referente (nome, qualifica)")}</div>
     <div class="grid2"><label class="field"><span>Usa un software gestionale?</span><select id="ce_gestionale" data-ce="gestionale">${[["", "— Non indicato —"], ["si", "Sì"], ["no", "No"]].map(([v, l]) => `<option value="${v}" ${(c.gestionale || "") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
       <label class="field" id="ceSwBox" ${c.gestionale === "si" ? "" : "hidden"}><span>Quale software gestionale</span><input type="text" id="ce_software" data-ce="software" value="${esc(c.software ?? "")}" placeholder="Nome del programma"></label></div>
     <label class="field"><span>Note</span><textarea id="ce_note" data-ce="note">${esc(c.note || "")}</textarea></label>
@@ -1259,10 +1260,10 @@ async function importaStorico(conferma) {
     const body = JSON.parse(await file.text());
     const r = await api("POST", "/api/importa-storico", { ...body, conferma: !!conferma });
     if (r.anteprima) {
-      box.innerHTML = `<div class="banner info" style="flex-direction:column;align-items:stretch"><span>Da importare: <b>${r.nuovi}</b> clienti (${r.cessati} cessati, ${r.verificati} verificati${r.senza_data ? `, ${r.senza_data} senza data` : ""}). Già presenti e saltati: <b>${r.saltati.length}</b>${r.saltati.length ? ` (${esc(r.saltati.slice(0, 10).join(", "))}${r.saltati.length > 10 ? "…" : ""})` : ""}.</span>
-        ${r.nuovi ? `<div class="row"><button class="btn primary" data-act="imp-conferma">Importa ${r.nuovi} clienti</button></div>` : ""}</div>`;
+      box.innerHTML = `<div class="banner info" style="flex-direction:column;align-items:stretch"><span>Da importare: <b>${r.nuovi}</b> clienti (${r.cessati} cessati, ${r.verificati} verificati${r.senza_data ? `, ${r.senza_data} senza data` : ""}).${r.completati ? ` Già presenti da completare con P.IVA, indirizzo e contatti: <b>${r.completati}</b>.` : ""} Già presenti e saltati: <b>${r.saltati.length}</b>${r.saltati.length ? ` (${esc(r.saltati.slice(0, 10).join(", "))}${r.saltati.length > 10 ? "…" : ""})` : ""}.</span>
+        ${r.nuovi || r.completati ? `<div class="row"><button class="btn primary" data-act="imp-conferma">${r.nuovi ? `Importa ${r.nuovi} clienti` : "Completa i dati"}${r.nuovi && r.completati ? ` e completa ${r.completati}` : ""}</button></div>` : ""}</div>`;
     } else {
-      box.innerHTML = `<div class="banner ok"><span>Importati <b>${r.importati}</b> clienti. Backup fatto prima dell'import: <span class="mono">${esc(r.backup || "")}</span>.</span></div>`;
+      box.innerHTML = `<div class="banner ok"><span>Importati <b>${r.importati}</b> clienti${r.completati ? `, completati ${r.completati}` : ""}. Backup fatto prima dell'import: <span class="mono">${esc(r.backup || "")}</span>.</span></div>`;
       toast("Storico importato"); await start();
     }
   } catch (err) { if (err instanceof SyntaxError) toast("Il file non è un JSON valido."); else apiError(err); }
