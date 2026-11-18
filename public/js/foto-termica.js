@@ -174,7 +174,8 @@ function fotoPannelli() {
       ${ser ? `<button class="btn${bt ? "" : " primary"}" data-ft="ser" ${!r || FT.busy ? "disabled" : ""}>Stampa da USB / porta COM</button>` : ""}
       <button class="btn" data-ft="driver" ${!r ? "disabled" : ""}>Stampa col driver</button>
       <button class="btn" data-ft="png" ${!r ? "disabled" : ""}>${navigator.canShare ? "Condividi" : "Scarica"} immagine</button></div>
-    ${bt ? `<label class="check"><input type="checkbox" data-fc="lenta" ${btPref().lenta ? "checked" : ""}> Modalità compatibile (più lenta): usala se la stampa esce tagliata o con righe strane</label>` : ""}
+    ${bt || ser ? `<div class="field"><span>Velocità stampa</span><div class="seg wide choose" role="group">${seg("vel", btPref().velocita, [["normale", "Normale"], ["lenta", "Lenta"], ["molto", "Molto lenta"]])}</div></div>
+    <p class="faint" style="margin:0">Per le foto «Lenta» o «Molto lenta» danno neri più pieni e niente righe bianche.</p>` : ""}
     ${FT.err ? `<div class="qrres"><b>Stampa non riuscita</b>${esc(FT.err)}</div>` : ""}</div>`;
 }
 function fotoDisegna() {
@@ -240,6 +241,7 @@ function fotoAvvia() {
       case "scatta": $("#ftCam").click(); break;
       case "ruota": FT.rot = (FT.rot + 90) % 360; fotoRicalcola(true); break;
       case "carta": ls.set(BT_PREF, { ...btPref(), carta: Number(v) }); fotoRicalcola(true); break;
+      case "vel": ls.set(BT_PREF, { ...btPref(), velocita: v, lenta: undefined }); fotoDisegna(); break;
       case "metodo": FT.metodo = v; fotoPrefs(); fotoRicalcola(true); break;
       case "reset": Object.assign(FT, FOTO_DEF); fotoPrefs(); fotoRicalcola(true); break;
       case "bt": case "bt-cambia": case "ser": await fotoInvia(el.dataset.ft); break;
@@ -261,7 +263,6 @@ function fotoAvvia() {
     const t = e.target;
     if (t.id === "ftFile" || t.id === "ftCam") { fotoApri(t.files?.[0]); t.value = ""; return; }
     const k = t.dataset.fc; if (!k) return;
-    if (k === "lenta") { ls.set(BT_PREF, { ...btPref(), lenta: t.checked }); return; }
     if (k === "originale") { FT.originale = t.checked; fotoTela(); return; }
     FT[k] = t.checked; fotoPrefs(); fotoRicalcola(true);
   });

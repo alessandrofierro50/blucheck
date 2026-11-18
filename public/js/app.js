@@ -1166,9 +1166,12 @@ function panelTermica(v) {
       ${isAndroid() ? `<button class="btn${bt ? " sm" : ""}" data-act="bt-rawbt" data-id="${v.id}">Stampa con RawBT</button>` : ""}
       ${serDisponibile() ? `<button class="btn${bt ? " sm" : ""}" data-act="ser-stampa" data-id="${v.id}" ${st.busy ? "disabled" : ""}>Stampa da USB / porta COM</button>` : ""}
       <button class="btn${bt ? " sm" : ""}" data-act="pdf80-share" data-id="${v.id}">Condividi PDF 80 mm</button></div>
-    ${bt ? `<label class="check"><input type="checkbox" data-act="bt-lenta" ${p.lenta ? "checked" : ""}> Modalità compatibile (più lenta): usala se la stampa esce tagliata o con righe strane</label>` : ""}
+    ${velocitaSeg()}
     ${st.err ? `<div class="qrres"><b>Stampa non riuscita</b>${esc(st.err)}</div>` : ""}</div>`;
 }
+// velocità di stampa (Bluetooth, RawBT, USB/COM): blocchi più piccoli con pause e testina più lenta = stampa più scura e regolare
+const velocitaSeg = () => { const v = btPref().velocita; return `<div class="field"><span>Velocità stampa</span><div class="seg wide choose" role="group">${[["normale", "Normale"], ["lenta", "Lenta"], ["molto", "Molto lenta"]].map(([k, l]) => `<button data-act="bt-vel" data-v="${k}" aria-pressed="${v === k}">${l}</button>`).join("")}</div>
+    <small class="faint">Più lenta se la stampa esce chiara, a strisce o con righe saltate. Col PDF da Windows la velocità si regola nel driver.</small></div>`; };
 /* prova di stampa termica (Impostazioni): scheda di verifica in bianco da compilare a mano, con Bluetooth, RawBT o PDF */
 const PROVA = { tipo: "integro" };
 function panelProvaTermica() {
@@ -1179,6 +1182,7 @@ function panelProvaTermica() {
     <p class="faint" style="margin:0">Stampa la scheda di verifica in bianco da compilare a mano (caselle SI/NO, righe per esercente, apparecchio, firme e timbro), con in fondo un controllo della larghezza.${p.nome ? ` Ultima stampante: <b>${esc(p.nome)}</b>.` : ""}</p>
     <div class="field"><span>Scheda</span><div class="seg wide choose" role="group">${tipo}</div></div>
     <div class="field"><span>Larghezza carta</span><div class="seg wide choose" role="group">${carta}</div></div>
+    ${velocitaSeg()}
     <div class="row">${bt ? `<button class="btn${isAndroid() ? " primary" : ""}" data-act="prova-bt" ${PROVA.busy ? "disabled" : ""}>${PROVA.busy ? `Stampa in corso… ${Math.round((PROVA.pct || 0) * 100)}%` : "Stampa con Bluetooth"}</button>` : ""}
       ${isAndroid() ? `<button class="btn" data-act="prova-rawbt">Stampa con RawBT</button>` : ""}
       ${serDisponibile() ? `<button class="btn${isAndroid() ? "" : " primary"}" data-act="prova-ser" ${PROVA.busy ? "disabled" : ""}>Stampa da USB / porta COM</button>` : ""}
@@ -1314,7 +1318,7 @@ document.addEventListener("click", async (e) => {
     case "ser-stampa": await stampaSeriale(id, !Seriale.port); break;
     case "prova-rawbt": try { location.href = rawbtUrl(await bytesProva()); setTimeout(() => toast("Se non si apre niente, installa RawBT dal Play Store e collega lì la stampante.", 6000), 1500); } catch (err) { apiError(err); } break;
     case "prova-pdf": { const w = window.open("", "_blank"); try { const blob = pdfSchedaBianca(PROVA.tipo, lab()).output("blob"), url = URL.createObjectURL(blob); if (w && !w.closed) w.location.href = url; else scaricaFile(`Scheda_verifica_80mm_${PROVA.tipo}.pdf`, blob); } catch (err) { w?.close(); apiError(err); } break; }
-    case "bt-lenta": ls.set(BT_PREF, { ...btPref(), lenta: el.checked }); break;
+    case "bt-vel": ls.set(BT_PREF, { ...btPref(), velocita: el.dataset.v, lenta: undefined }); if (UI.sheet) renderSheet(); paintProva(); break;
     case "bt-stampa": await stampaTermica(id, !Termica.device); break;
     case "bt-cambia": await stampaTermica(id, true); break;
     case "bt-rawbt": try { const b = await escposDi(id); location.href = rawbtUrl(b); setTimeout(() => toast("Se non si apre niente, installa RawBT dal Play Store e collega lì la stampante.", 6000), 1500); } catch (err) { apiError(err); } break;
