@@ -36,7 +36,7 @@ const r = await page.evaluate(async () => {
   const v = { id: "r1", numero: "12/2026", tipo: "integro", esiti, esito: "positivo", data: "2026-11-18", oraInizio: "09:00", oraFine: "09:40", luogo: "Muro Leccese",
     interventi: { lab: true, vp: true }, cli, app: { modello: "Olivetti Form 200 Plus", matricola: "72MU1234567", indirizzo: "Via Roma 12", localita: "Muro Leccese" },
     lab: { ragione: "CDL Italia srl", indirizzo: "Via Prova 1", cap: "73046 Matino", piva: "09876543210" }, tecnico: { nome: "Tecnico Prova", cf: "TCNPRV80A01E506X", sigillo: "S123" },
-    utenteNome: "Mario Rossi", utenteQualifica: "titolare", dichiarante: "utente", motivoSigillo: "rimozione per riparazione" };
+    utenteNome: "Mario Rossi", utenteQualifica: "titolare", dichiarante: "utente", motivoSigillo: "rimozione per riparazione", fwPresente: "2.1.5", fwUltima: true };
   const b64 = (d) => btoa(new Uint8Array(d.output("arraybuffer")).reduce((s, x) => s + String.fromCharCode(x), ""));
   const imgs = (d) => (d.output().match(/\/Subtype \/Image/g) || []).length;
   const a4 = pdfA4(v, firma, firma, tb), a4n = pdfA4(v, firma, firma, null), th = pdfThermal(v, firma, firma, tb), thn = pdfThermal(v, firma, firma, null), di = pdfDich(v, firma, firma, tb);
@@ -62,6 +62,7 @@ const r = await page.evaluate(async () => {
     ricevuti: window.__ricevuti.length === bytes.length && window.__ricevuti.every((x, i) => x === bytes[i]), servizi: window.__opzioni?.optionalServices?.length,
     rawbt: rawbtUrl(new Uint8Array([27, 64, 65])), b64esc: btoa(String.fromCharCode(...bytes.slice(0, 0))) === "",
     bytes: Array.from(bytes), serOk,
+    fwPdf: (() => { const ha = (d) => d.output().includes("Si dichiara che il Registratore"); return [ha(pdfA4(v, firma, firma, tb)), ha(pdfThermal(v, firma, firma, tb)), !ha(pdfA4({ ...v, fwUltima: false }, firma, firma, tb)), !ha(pdfThermal({ ...v, fwUltima: undefined }, firma, firma, tb))]; })(),
     lenta: await (async () => {
       const pezziN = Math.max(...window.__pezzi), serN = Math.max(...window.__seriale.pezzi);
       localStorage.setItem("blucheck_termica", JSON.stringify({ carta: 80, velocita: "lenta" }));
@@ -99,6 +100,8 @@ ok(r.maxRiga <= 48 && r.maxRiga58 <= 32, `righe entro 48 colonne (80 mm) e 32 (5
 ok(r.ascii, "testo solo ASCII");
 ok(r.accenti === "Citta' e' perche' EUR 5", "accenti e euro: " + r.accenti);
 ok(r.esitoRiga, "esito stampato");
+ok(r.righe.join(" ").includes("aggiornato all'ultima versione firmware disponibile alla data (versione 2.1.5)") && r.bianca.righe.join(" ").includes("[ ] Il RT e' aggiornato all'ultima versione firmware"), "dichiarazione firmware nel rapporto e nella scheda in bianco (termica)");
+ok(r.fwPdf.every(Boolean), "dichiarazione firmware nei PDF A4 e 80 mm, assente se non spuntata: " + r.fwPdf.join(","));
 ok(r.ricevuti, "Bluetooth simulato: la stampante ha ricevuto tutti i byte, in ordine");
 ok(r.servizi >= 5, "richiesta Bluetooth con i servizi delle stampanti note");
 ok(r.serOk, "porta USB/COM simulata (Web Serial): tutti i byte, 9600 baud, porta chiusa alla fine, Bluetooth SPP ammesso");

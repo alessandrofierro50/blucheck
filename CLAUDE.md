@@ -116,6 +116,9 @@ Questo software fa parte del progetto BluCode Informatica. La memoria condivisa 
       Dopo un annullo o un blocco il Bluetooth si scollega e la stampa successiva ricollega da capo; la porta COM si libera sempre.
       PDF 80 mm (`pdfThermal`) a pagine di `PDF_PAGINA` = 190 mm al massimo, l'ultima alta quanto serve (`spazio(h)` va a pagina nuova senza
       spezzare righe, firme, timbro o titoli): il driver POS80 di Windows si fermava a metà di un foglio unico lungo 40 cm.
+      Dichiarazione firmware (2026-11-19): casella «Dichiaro che il registratore è aggiornato all'ultima versione firmware disponibile» nel modulo
+      (`fwUltima`, vera per i rapporti nuovi; i rapporti di prima non la stampano). Se spuntata, `fwDichiarazione(v)` (pdf.js, con la versione) compare
+      in A4 sotto il firmware, nel PDF 80 mm e nell'ESC/POS; la scheda in bianco ha la casella `FW_BIANCO`. La Dichiarazione All. 3 la aveva già.
 - [x] Importa QR da file (2026-11-18): Apparecchi > «Importa QR da file» (`public/js/importa-qr.js`, caricato da `app.js` solo al clic con
       `caricaImportaQr`, `?v=` da cambiare a ogni modifica del file; pannello `qrimp`, eventi propri `data-qi-act` / `data-qi-sel`).
       Il browser legge foto, PDF (pdf.js 4.10.38 legacy in `public/vendor/pdfjs`, import dinamico) e ZIP (lettore interno con

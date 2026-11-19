@@ -901,7 +901,7 @@ function newForm(appId) {
     id: null, apparecchioId: a?.id || "", tipo: "integro", tipoSigillo: "", interventi: { lab: true, vp: true, biennale: true }, esiti: {},
     data: todayISO(), oraInizio: nowHM(), dataFine: todayISO(), oraFine: "", fwPresente: a?.firmware || "", fwData: a?.firmwareData || "", fwAggiornato: "",
     luogo: lab().luogo, utenteNome: cliente(a?.clienteId)?.referente || "", utenteQualifica: "", dgfeFatto: false, note: "",
-    motivoSigillo: "", dichiarante: "tecnico", firmaUtente: "", qrCheck: null, timbro: true,
+    motivoSigillo: "", dichiarante: "tecnico", firmaUtente: "", qrCheck: null, timbro: true, fwUltima: true,
   };
 }
 function startForm(appId, existing) {
@@ -942,6 +942,7 @@ function viewForm() {
   <div class="panel"><div class="spread"><h2>4. Prove</h2><button class="btn sm" data-act="all-si">Tutte SI</button></div>
     <div id="testsBox"></div>
     <div class="grid3">${inp("fwPresente", "Firmware presente: versione", "text", "mono")}${inp("fwData", "Data firmware", "date")}${inp("fwAggiornato", "Aggiornato alla versione (se fatto)", "text", "mono")}</div>
+    <label class="check"><input type="checkbox" id="f_fwUltima" data-f="fwUltima" ${F.fwUltima ? "checked" : ""}> Dichiaro che il registratore è aggiornato all'ultima versione firmware disponibile alla data (compare nelle stampe)</label>
   </div>
   <div class="panel" id="dichPanel" ${F.tipo === "privo" ? "" : "hidden"}><h2>Dichiarazione (All. 3)</h2>
     <div class="field"><span>Dichiarante</span><div class="seg wide choose" role="group">

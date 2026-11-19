@@ -43,6 +43,9 @@ function computeEsito(v) {
   if (vals.every((x) => x === "si")) return "positivo";
   return "incompleto";
 }
+// dichiarazione sul firmware (casella «fwUltima» del modulo; i rapporti di prima non l'avevano e non la stampano)
+const fwDichiarazione = (v) => "Si dichiara che il Registratore Telematico è aggiornato all'ultima versione firmware disponibile alla data" + (v.fwAggiornato || v.fwPresente ? ` (versione ${v.fwAggiornato || v.fwPresente})` : "") + ".";
+const FW_BIANCO = "[ ] Il RT è aggiornato all'ultima versione firmware disponibile alla data";
 const INTERVENTI = [["lab", "Laboratorio"], ["utente", "Utente"], ["vp", "V.P."], ["attivazione", "Attivazione"], ["biennale", "Biennale"], ["post", "Post.Inter."]];
 const SIGILLI = { "1": "A percussione (lega tenera metallica)", "2": "Targhetta adesiva (all. A Provv. 6/5/2010)", "3": "Tamper" };
 
@@ -167,6 +170,7 @@ function pdfA4(v, firmaU, firmaT, timbro) {
   cells([[c6, "Inizio Intervento", "bold"], [c6, "Data: " + fmtD(v.data)], [c6, "Ora: " + (v.oraInizio || "")], [c6, "Fine Intervento", "bold"], [c6, "Data: " + fmtD(v.dataFine || v.data)], [c6, "Ora: " + (v.oraFine || "")]]);
   cells([[c6, "Firmware presente", "bold"], [c6, "Versione", "bold"], [c6, "Data", "bold"], [c6, "Dati registrati in memoria", "bold"], [c6, "P.I. Laboratorio", "bold"], [c6, "C.F. Tecnico", "bold"]], 8, 7.5);
   cells([[c6, ""], [c6, v.fwAggiornato || v.fwPresente || ""], [c6, fmtD(v.fwAggiornato ? v.dataFine || v.data : v.fwData)], [c6, v.esiti?.reg === "si" ? "SI" : v.esiti?.reg === "no" ? "NO" : ""], [c6, L.piva], [c6, L.cfTecnico]], 7, 8.5, "bold");
+  if (v.fwUltima) cells([[W, fwDichiarazione(v), "bold"]], 9.5, 8);
   cells([[c6 * 2, "Luogo e data", "bold"], [c6 * 4, `${v.luogo || ""}, ${fmtD(v.dataFine || v.data)}`]]);
   const es = v.esito === "positivo" ? `ESITO POSITIVO - prossima verificazione entro il ${fmtD(addYears(v.data, 2))}` : v.esito === "negativo" ? "ESITO NEGATIVO" : "ESITO NON DETERMINATO";
   cells([[W, es, "bold"]], 7, 9.5);
@@ -246,6 +250,7 @@ function pdfThermal(v, firmaU, firmaT, timbro, coda) {
     sep();
     if (B) y += 1;
     lr("Firmware presente", u(v.fwPresente || "-"), 7.5); if (B || v.fwAggiornato) { if (B) y += 1; lr("Aggiornato a", u(v.fwAggiornato)); }
+    if (B) { y += 1; t(FW_BIANCO.replace("[ ]", "[  ]"), 7.5); } else if (v.fwUltima) t(fwDichiarazione(v), 7.5, "bold");
     if (B) y += 1; lr("Inizio", B ? "___/___/______  ___:___" : `${fmtD(v.data)} ${v.oraInizio || ""}`, 7.5);
     if (B) y += 1; lr("Fine", B ? "___/___/______  ___:___" : `${fmtD(v.dataFine || v.data)} ${v.oraFine || ""}`, 7.5);
     lr("P.I. Laboratorio", L.piva || u(""), 7.5); if (B) y += 1; lr("C.F. Tecnico", L.cfTecnico || u(""), 7.5); sep();
@@ -360,12 +365,13 @@ async function escposRapporto(v, firmaU, firmaT, timbro, carta = 80, taglia = tr
   for (const x of buildTests(v.tipo)) { if (x.head) t(`${x.c} ${x.s}`, { b: true }); else lr(`${x.c} ${CORTE[x.k] || x.s}`, val(x.k)); }
   sep();
   if (B) {
-    campo("Firmware presente"); campo("Aggiornato a"); raw(0x0a); line("Inizio  ___/___/______  ___:___"); raw(0x0a); line("Fine    ___/___/______  ___:___");
+    campo("Firmware presente"); campo("Aggiornato a"); raw(0x0a); t(FW_BIANCO); raw(0x0a); line("Inizio  ___/___/______  ___:___"); raw(0x0a); line("Fine    ___/___/______  ___:___");
     if (L.piva) lr("P.I. Laboratorio", L.piva); else campo("P.I. Laboratorio"); campo("C.F. Tecnico"); sep();
     raw(0x0a); t("ESITO:  [ ] POSITIVO   [ ] NEGATIVO", { b: true, c: true }); raw(0x0a); t("Prossima verificazione entro ___/___/______", { c: true });
     sep(); campo("Luogo e data");
   } else {
   lr("Firmware presente", v.fwPresente || "-"); if (v.fwAggiornato) lr("Aggiornato a", v.fwAggiornato);
+  if (v.fwUltima) t(fwDichiarazione(v));
   lr("Inizio", `${fmtD(v.data)} ${v.oraInizio || ""}`.trim()); lr("Fine", `${fmtD(v.dataFine || v.data)} ${v.oraFine || ""}`.trim());
   lr("P.I. Laboratorio", L.piva || ""); lr("C.F. Tecnico", L.cfTecnico || ""); sep();
   t(v.esito === "positivo" ? "ESITO POSITIVO" : v.esito === "negativo" ? "ESITO NEGATIVO" : "ESITO NON DETERMINATO", { b: true, c: true, big: true });
